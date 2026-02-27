@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+    
+    /* IDE specific colors */
+    --ide-bg: 0 0% 6%;
+    --ide-sidebar: 0 0% 10%;
+    --ide-editor: 0 0% 12%;
+    --ide-chat: 0 0% 8%;
+    --ide-border: 0 0% 15%;
+    --ide-accent: 239 84% 67%;
+    --ide-text-primary: 0 0% 90%;
+    --ide-text-secondary: 0 0% 64%;
+    --ide-hover: 0 0% 18%;
+    --ide-active: 239 84% 67% / 20%;
+    
+    --sidebar: 0 0% 10%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-ring: 239 84% 67%;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 239 84% 67%;
+    
+    --ide-bg: 0 0% 6%;
+    --ide-sidebar: 0 0% 10%;
+    --ide-editor: 0 0% 12%;
+    --ide-chat: 0 0% 8%;
+    --ide-border: 0 0% 15%;
+    --ide-accent: 239 84% 67%;
+    --ide-text-primary: 0 0% 90%;
+    --ide-text-secondary: 0 0% 64%;
+    --ide-hover: 0 0% 18%;
+    --ide-active: 239 84% 67% / 20%;
+    
+    --sidebar: 0 0% 10%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-ring: 239 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html, body, #root {
+    @apply h-full overflow-hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Inter Variable", "Inter", system-ui, sans-serif;
+  }
+
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+
+  /* Custom scrollbar for IDE */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--ide-bg));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--ide-border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 40%);
+  }
+}
