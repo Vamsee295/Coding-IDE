@@ -5,198 +5,58 @@ import Editor from "@/react-app/components/ide/Editor";
 import ChatPanel from "@/react-app/components/ide/ChatPanel";
 import TerminalPanel from "@/react-app/components/ide/TerminalPanel";
 import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog";
+import SettingsView from "@/react-app/components/ide/SettingsView";
+import { useSettings } from "@/react-app/contexts/SettingsContext";
+import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
 import { FileItem, ChatMessage, EditorTab } from "@/react-app/types/ide";
+import { getProjects, getProjectFiles, createFile, updateFile, deleteFile } from "@/services/api";
+import { openLocalDirectory, buildTreeFromFiles } from "@/utils/fileSystemHelper";
+import { useEffect, useRef } from "react";
+// Dummy data removed, using dynamic loading from API
 
-// Initial file structure
-const initialFiles: FileItem[] = [
-  {
-    id: "src",
-    name: "src",
-    type: "folder",
-    children: [
-      {
-        id: "components",
-        name: "components",
-        type: "folder",
-        children: [
-          {
-            id: "Button.tsx",
-            name: "Button.tsx",
-            type: "file",
-            content: `import React from 'react';
+// Helper to transform flat DB files into nested tree
+const buildFileTree = (files: any[]): FileItem[] => {
+  const map = new Map<string, FileItem>();
+  const roots: FileItem[] = [];
 
-interface ButtonProps {
-  children: React.ReactNode;
-  variant?: 'primary' | 'secondary' | 'ghost';
-  size?: 'sm' | 'md' | 'lg';
-  onClick?: () => void;
-}
+  files.forEach((file) => {
+    map.set(file.id, {
+      id: file.id,
+      name: file.name,
+      type: file.type,
+      content: file.content || "",
+      children: file.type === "folder" ? [] : undefined,
+    });
+  });
 
-export function Button({ 
-  children, 
-  variant = 'primary', 
-  size = 'md',
-  onClick 
-}: ButtonProps) {
-  const baseStyles = 'inline-flex items-center justify-center rounded-lg font-medium transition-colors';
-  
-  const variants = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700',
-    secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300',
-    ghost: 'bg-transparent hover:bg-gray-100'
-  };
-  
-  const sizes = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2 text-base',
-    lg: 'px-6 py-3 text-lg'
-  };
+  files.forEach((file) => {
+    const node = map.get(file.id)!;
+    if (file.parent) {
+      const parentNode = map.get(file.parent.id);
+      if (parentNode && parentNode.children) {
+        parentNode.children.push(node);
+      } else {
+        roots.push(node); // Fallback if parent is missing
+      }
+    } else {
+      roots.push(node);
+    }
+  });
 
-  return (
-    <button 
-      className={\`\${baseStyles} \${variants[variant]} \${sizes[size]}\`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}`,
-          },
-          {
-            id: "Header.tsx",
-            name: "Header.tsx",
-            type: "file",
-            content: `import { useState } from 'react';
-import { Button } from './Button';
-
-export function Header() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  return (
-    <header className="bg-white border-b border-gray-200">
-      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <span className="text-xl font-bold">Logo</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost">Sign In</Button>
-            <Button variant="primary">Get Started</Button>
-          </div>
-        </div>
-      </nav>
-    </header>
-  );
-}`,
-          },
-        ],
-      },
-      {
-        id: "App.tsx",
-        name: "App.tsx",
-        type: "file",
-        content: `import { Header } from './components/Header';
-
-function App() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Welcome to My App
-        </h1>
-        <p className="mt-4 text-gray-600">
-          Start building something amazing.
-        </p>
-      </main>
-    </div>
-  );
-}
-
-export default App;`,
-      },
-      {
-        id: "main.tsx",
-        name: "main.tsx",
-        type: "file",
-        content: `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);`,
-      },
-    ],
-  },
-  {
-    id: "package.json",
-    name: "package.json",
-    type: "file",
-    content: `{
-  "name": "my-project",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "typescript": "^5.0.0",
-    "vite": "^5.0.0"
-  }
-}`,
-  },
-  {
-    id: "README.md",
-    name: "README.md",
-    type: "file",
-    content: `# My Project
-
-A modern React application built with TypeScript and Vite.
-
-## Getting Started
-
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-## Features
-
-- ⚡️ Vite for fast development
-- 🔷 TypeScript for type safety
-- ⚛️ React 18 with hooks
-- 🎨 Tailwind CSS for styling
-`,
-  },
-];
+  return roots;
+};
 
 export default function HomePage() {
+  const { settings, updateSettings, setIsSettingsOpen } = useSettings();
+  const fallbackFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
   const [selectedModel, setSelectedModel] = useState("qwen2.5-coder:7b");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeFileId, setActiveFileId] = useState<string | null>("Button.tsx");
-  const [files, setFiles] = useState<FileItem[]>(initialFiles);
-  const [tabs, setTabs] = useState<EditorTab[]>([
-    {
-      id: "Button.tsx",
-      name: "Button.tsx",
-      language: "typescript",
-      content: initialFiles[0].children![0].children![0].content || "",
-      isActive: true,
-      isDirty: false,
-    },
-  ]);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "1",
@@ -217,6 +77,30 @@ export default function HomePage() {
   });
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(250);
+
+  // Load Projects and Files from Backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const projects = await getProjects();
+        if (projects.length > 0) {
+          const defaultProject = projects[0];
+          setActiveProjectId(defaultProject.id);
+
+          const rawFiles = await getProjectFiles(defaultProject.id);
+          setFiles(buildFileTree(rawFiles));
+        } else {
+          // If no projects, maybe create a default one (Optional)
+          // const newProject = await createProject("Default Project");
+          // setActiveProjectId(newProject.id);
+        }
+      } catch (error) {
+        console.error("Failed to load backend data", error);
+        // Fallback or error reporting UI could be shown here
+      }
+    };
+    fetchData();
+  }, []);
 
   const findFileContent = (files: FileItem[], fileId: string): string | undefined => {
     for (const file of files) {
@@ -279,7 +163,7 @@ export default function HomePage() {
     );
   }, []);
 
-  const handleSendMessage = useCallback((content: string) => {
+  const handleSendMessage = useCallback(async (content: string) => {
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
@@ -289,18 +173,45 @@ export default function HomePage() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const response = await fetch(`${settings.ollamaEndpoint}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          prompt: content,
+          stream: false // Using non-streaming for simplicity
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP Error Status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `I understand you're asking about: "${content}"\n\nThis is a demo interface. In the full version, this would connect to your local Ollama instance at localhost:11434 and use the selected model to process your request.`,
+        content: data.response || "No response received.",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiResponse]);
+    } catch (error: any) {
+      console.error("Local Ollama Error:", error);
+      const aiResponseError: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `**Connection Error**: Failed to reach your local Ollama instance at \`${settings.ollamaEndpoint}\`.\n\nMake sure Ollama is running, and you've set \`OLLAMA_ORIGINS="*"\` to allow browser access.\n\nDetails: ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, aiResponseError]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
-  }, []);
+    }
+  }, [settings.ollamaEndpoint, selectedModel]);
 
   const handleActionClick = useCallback((action: "explain" | "fix" | "optimize") => {
     const activeTab = tabs.find((t) => t.isActive);
@@ -358,10 +269,6 @@ export default function HomePage() {
     });
   };
 
-  const generateUniqueId = () => {
-    return `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  };
-
   // File operation handlers
   const handleNewFile = useCallback((parentId: string) => {
     setDialogState({ open: true, mode: "new-file", parentId });
@@ -379,91 +286,170 @@ export default function HomePage() {
     setDialogState({ open: true, mode: "delete", item });
   }, []);
 
-  const handleDuplicate = useCallback((item: FileItem) => {
-    if (item.type === "folder") return;
+  const handleDuplicate = useCallback(async (item: FileItem) => {
+    if (item.type === "folder" || !activeProjectId) return;
 
-    const newItem: FileItem = {
-      ...item,
-      id: generateUniqueId(),
-      name: item.name.replace(/(\.[^.]+)$/, " copy$1"),
-    };
+    try {
+      const duplicateName = item.name.replace(/(\.[^.]+)$/, " copy$1");
 
-    setFiles((prev) => {
-      // Find the parent and add the new item next to the original
-      const addDuplicate = (items: FileItem[]): FileItem[] => {
-        const result: FileItem[] = [];
-        for (const curr of items) {
-          result.push(curr);
-          if (curr.id === item.id) {
-            result.push(newItem);
-          } else if (curr.children) {
-            curr.children = addDuplicate(curr.children);
-          }
-        }
-        return result;
+      // Need to find parent to assign correct parent ID for backend. For now default to root if at top
+      // As a simplification, we pass "root". A robust approach searches the tree for item's parent id.
+      const duplicatedDb = await createFile(activeProjectId, duplicateName, "file", "root", item.content || "");
+
+      const newLocalItem: FileItem = {
+        ...item,
+        id: duplicatedDb.id,
+        name: duplicatedDb.name,
       };
-      return addDuplicate(prev);
-    });
-  }, []);
 
-  const handleDialogConfirm = useCallback(
-    (value: string) => {
-      const { mode, item, parentId } = dialogState;
-
-      switch (mode) {
-        case "new-file": {
-          const newFile: FileItem = {
-            id: generateUniqueId(),
-            name: value,
-            type: "file",
-            content: "",
-          };
-          setFiles((prev) => findParentAndAdd(prev, parentId!, newFile));
-          break;
-        }
-
-        case "new-folder": {
-          const newFolder: FileItem = {
-            id: generateUniqueId(),
-            name: value,
-            type: "folder",
-            children: [],
-          };
-          setFiles((prev) => findParentAndAdd(prev, parentId!, newFolder));
-          break;
-        }
-
-        case "rename": {
-          if (item) {
-            setFiles((prev) =>
-              findAndUpdateFile(prev, item.id, (f) => ({ ...f, name: value }))
-            );
-            // Update tab name if it's open
-            setTabs((prev) =>
-              prev.map((t) => (t.id === item.id ? { ...t, name: value } : t))
-            );
-          }
-          break;
-        }
-
-        case "delete": {
-          if (item) {
-            setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
-            // Close tab if it's open
-            setTabs((prev) => prev.filter((t) => t.id !== item.id));
-            if (activeFileId === item.id) {
-              setActiveFileId(null);
+      setFiles((prev) => {
+        const addDuplicate = (items: FileItem[]): FileItem[] => {
+          const result: FileItem[] = [];
+          for (const curr of items) {
+            result.push(curr);
+            if (curr.id === item.id) {
+              result.push(newLocalItem);
+            } else if (curr.children) {
+              curr.children = addDuplicate(curr.children);
             }
           }
-          break;
+          return result;
+        };
+        return addDuplicate(prev);
+      });
+    } catch (e) {
+      console.error("Duplicate failed", e);
+    }
+  }, [activeProjectId]);
+
+  const handleDialogConfirm = useCallback(
+    async (value: string) => {
+      const { mode, item, parentId } = dialogState;
+      if (!activeProjectId) return;
+
+      try {
+        switch (mode) {
+          case "new-file": {
+            const newFile = await createFile(activeProjectId, value, "file", parentId || "root");
+            const newFileItem: FileItem = {
+              id: newFile.id,
+              name: newFile.name,
+              type: newFile.type,
+              content: newFile.content || "",
+            };
+            setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFileItem));
+            handleFileSelect(newFileItem);
+            break;
+          }
+
+          case "new-folder": {
+            const newFolder = await createFile(activeProjectId, value, "folder", parentId || "root");
+            const newFolderItem: FileItem = {
+              id: newFolder.id,
+              name: newFolder.name,
+              type: newFolder.type,
+              children: [],
+            };
+            setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFolderItem));
+            break;
+          }
+
+          case "rename": {
+            if (item) {
+              const updated = await updateFile(item.id, { name: value });
+              setFiles((prev) =>
+                findAndUpdateFile(prev, item.id, (f) => ({ ...f, name: updated.name }))
+              );
+              setTabs((prev) =>
+                prev.map((t) => (t.id === item.id ? { ...t, name: updated.name } : t))
+              );
+            }
+            break;
+          }
+
+          case "delete": {
+            if (item) {
+              await deleteFile(item.id);
+              setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
+              // Close tab if it's open
+              setTabs((prev) => prev.filter((t) => t.id !== item.id));
+              if (activeFileId === item.id) {
+                setActiveFileId(null);
+              }
+            }
+            break;
+          }
         }
+      } catch (error) {
+        console.error("Failed to execute file operation on backend:", error);
       }
     },
-    [dialogState, activeFileId]
+    [dialogState, activeFileId, activeProjectId, handleFileSelect]
   );
+  // --- IDE Command Listeners ---
+  useIdeCommandListener("view.explorer", () => setSidebarCollapsed((prev) => !prev));
+  useIdeCommandListener("view.terminal", () => setTerminalVisible((prev) => !prev));
+  useIdeCommandListener("terminal.newTerminal", () => setTerminalVisible(true));
+  useIdeCommandListener("file.newFile", () => handleNewFile("root"));
+  useIdeCommandListener("file.newTextFile", () => handleNewFile("root"));
+  useIdeCommandListener("file.openFolder", async () => {
+    try {
+      if ('showDirectoryPicker' in window) {
+        const localFiles = await openLocalDirectory();
+        if (localFiles) {
+          setFiles(localFiles);
+          setActiveProjectId(null); // Clear active project since we're local now
+          setTabs([]); // Clear open tabs for safety
+          setActiveFileId(null);
+        }
+      } else {
+        throw new Error("API not supported natively");
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        fallbackFileInputRef.current?.click();
+      }
+    }
+  });
+
+  const handleFallbackDirectorySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const filesList = e.target.files;
+    if (!filesList || filesList.length === 0) return;
+
+    const localFiles = await buildTreeFromFiles(filesList);
+    if (localFiles) {
+      setFiles(localFiles);
+      setActiveProjectId(null);
+      setTabs([]);
+      setActiveFileId(null);
+    }
+  };
+  useIdeCommandListener("file.preferences", () => setIsSettingsOpen(true));
+  useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
+  useIdeCommandListener("file.closeEditor", () => {
+    if (activeFileId) handleTabClose(activeFileId);
+  });
+  useIdeCommandListener("file.exit", () => {
+    if (confirm("Are you sure you want to exit the IDE?")) {
+      window.close();
+      document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;height:100vh;background:#0f111a;color:#fff;font-family:sans-serif;'>IDE Closed. You can close this tab.</div>";
+    }
+  });
 
   return (
     <div className="h-screen flex flex-col bg-ide-bg overflow-hidden">
+      <input
+        type="file"
+        ref={fallbackFileInputRef}
+        style={{ display: 'none' }}
+        // @ts-ignore
+        webkitdirectory=""
+        // @ts-ignore
+        directory=""
+        multiple
+        onChange={handleFallbackDirectorySelect}
+      />
+      <SettingsView />
       <Navbar
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}

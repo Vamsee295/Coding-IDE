@@ -1,7 +1,10 @@
-import MonacoEditor from "@monaco-editor/react";
+import MonacoEditor, { OnMount } from "@monaco-editor/react";
+import { useRef } from "react";
 import { X, Circle } from "lucide-react";
 import { EditorTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
+import { useSettings } from "@/react-app/contexts/SettingsContext";
+import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
 
 interface EditorProps {
   tabs: EditorTab[];
@@ -38,6 +41,35 @@ const getLanguage = (filename: string): string => {
 
 export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange }: EditorProps) {
   const activeTab = tabs.find((t) => t.isActive);
+  const { settings } = useSettings();
+  const editorRef = useRef<any>(null);
+
+  const handleEditorDidMount: OnMount = (editor) => {
+    editorRef.current = editor;
+  };
+
+  // Bind IDE Commands to Monaco editor actions
+  useIdeCommandListener("edit.undo", () => editorRef.current?.trigger('menu', 'undo', null));
+  useIdeCommandListener("edit.redo", () => editorRef.current?.trigger('menu', 'redo', null));
+  useIdeCommandListener("edit.find", () => editorRef.current?.trigger('menu', 'actions.find', null));
+  useIdeCommandListener("edit.replace", () => editorRef.current?.trigger('menu', 'editor.action.startFindReplaceAction', null));
+  useIdeCommandListener("edit.toggleLineComment", () => editorRef.current?.trigger('menu', 'editor.action.commentLine', null));
+  useIdeCommandListener("edit.toggleBlockComment", () => editorRef.current?.trigger('menu', 'editor.action.blockComment', null));
+
+  useIdeCommandListener("selection.selectAll", () => editorRef.current?.trigger('menu', 'editor.action.selectAll', null));
+  useIdeCommandListener("selection.expandSelection", () => editorRef.current?.trigger('menu', 'editor.action.smartSelect.expand', null));
+  useIdeCommandListener("selection.shrinkSelection", () => editorRef.current?.trigger('menu', 'editor.action.smartSelect.shrink', null));
+  useIdeCommandListener("selection.copyLineUp", () => editorRef.current?.trigger('menu', 'editor.action.copyLinesUpAction', null));
+  useIdeCommandListener("selection.copyLineDown", () => editorRef.current?.trigger('menu', 'editor.action.copyLinesDownAction', null));
+  useIdeCommandListener("selection.moveLineUp", () => editorRef.current?.trigger('menu', 'editor.action.moveLinesUpAction', null));
+  useIdeCommandListener("selection.moveLineDown", () => editorRef.current?.trigger('menu', 'editor.action.moveLinesDownAction', null));
+
+  useIdeCommandListener("view.commandPalette", () => editorRef.current?.trigger('menu', 'editor.action.quickCommand', null));
+  useIdeCommandListener("help.showCommands", () => editorRef.current?.trigger('menu', 'editor.action.quickCommand', null));
+
+  useIdeCommandListener("go.goToSymbol", () => editorRef.current?.trigger('menu', 'editor.action.quickOutline', null));
+  useIdeCommandListener("go.goToDefinition", () => editorRef.current?.trigger('menu', 'editor.action.revealDefinition', null));
+  useIdeCommandListener("go.goToLine", () => editorRef.current?.trigger('menu', 'editor.action.gotoLine', null));
 
   if (tabs.length === 0) {
     return (
@@ -92,25 +124,26 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange 
             height="100%"
             language={getLanguage(activeTab.name)}
             value={activeTab.content}
-            theme="vs-dark"
+            theme={settings.theme === 'snowy-studio' ? "vs-light" : "vs-dark"}
             onChange={(value) => onContentChange(activeTab.id, value || "")}
+            onMount={handleEditorDidMount}
             options={{
-              fontSize: 14,
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              minimap: { enabled: true, scale: 1 },
+              fontSize: settings.fontSize,
+              fontFamily: settings.fontFamily,
+              minimap: { enabled: settings.minimap, scale: 1 },
+              wordWrap: settings.wordWrap ? "on" : "off",
+              lineNumbers: settings.lineNumbers ? "on" : "off",
+              bracketPairColorization: { enabled: settings.bracketPairColorization },
               scrollBeyondLastLine: false,
               smoothScrolling: true,
               cursorBlinking: "smooth",
               cursorSmoothCaretAnimation: "on",
               padding: { top: 16, bottom: 16 },
-              lineNumbers: "on",
               renderLineHighlight: "all",
-              bracketPairColorization: { enabled: true },
               autoIndent: "full",
               formatOnPaste: true,
               formatOnType: true,
               tabSize: 2,
-              wordWrap: "on",
             }}
           />
         </div>
