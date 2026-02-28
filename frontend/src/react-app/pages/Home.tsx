@@ -11,7 +11,16 @@ import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
 import { FileItem, ChatMessage, EditorTab } from "@/react-app/types/ide";
 import { getProjects, getProjectFiles, createFile, updateFile, deleteFile } from "@/services/api";
 import { openLocalDirectory, buildTreeFromFiles } from "@/utils/fileSystemHelper";
+import { fsService } from "@/services/fsService";
+import { eventService } from "@/services/eventService";
+import { commandService } from "@/services/commandService";
 import { useEffect, useRef } from "react";
+
+const getLanguage = (filename: string): string => {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  const map: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", py: "python", java: "java", json: "json", md: "markdown", html: "html", css: "css" };
+  return map[ext ?? ""] ?? "plaintext";
+};
 // Dummy data removed, using dynamic loading from API
 
 // Helper to transform flat DB files into nested tree
@@ -47,7 +56,7 @@ const buildFileTree = (files: any[]): FileItem[] => {
 };
 
 export default function HomePage() {
-  const { settings, updateSettings, setIsSettingsOpen } = useSettings();
+  const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
   const fallbackFileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -116,25 +125,42 @@ export default function HomePage() {
   const handleFileSelect = useCallback((file: FileItem) => {
     if (file.type === "folder") return;
 
-    setActiveFileId(file.id);
+    const openFile = async (item: FileItem) => {
+      let content = item.content || "";
 
-    setTabs((prev) => {
-      const existingTab = prev.find((t) => t.id === file.id);
-      if (existingTab) {
-        return prev.map((t) => ({ ...t, isActive: t.id === file.id }));
+      // If server-side file and no content yet, fetch it
+      if (item.path && !item.content) {
+        try {
+          content = await fsService.readFile(item.path);
+          // Update the file in the files tree so we don't fetch it again
+          setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, content })));
+        } catch (e) {
+          console.error("Failed to read file from server", e);
+        }
       }
-      return [
-        ...prev.map((t) => ({ ...t, isActive: false })),
-        {
-          id: file.id,
-          name: file.name,
-          language: "typescript",
-          content: file.content || "",
-          isActive: true,
-          isDirty: false,
-        },
-      ];
-    });
+
+      setActiveFileId(item.id);
+      setTabs((prev) => {
+        const existingTab = prev.find((t) => t.id === item.id);
+        if (existingTab) {
+          return prev.map((t) => ({ ...t, isActive: t.id === item.id }));
+        }
+        return [
+          ...prev.map((t) => ({ ...t, isActive: false })),
+          {
+            id: item.id,
+            name: item.name,
+            language: "typescript",
+            content: content,
+            isActive: true,
+            isDirty: false,
+            path: item.path
+          },
+        ];
+      });
+    };
+
+    openFile(file);
   }, []);
 
   const handleTabSelect = useCallback((tabId: string) => {
@@ -386,6 +412,77 @@ export default function HomePage() {
     },
     [dialogState, activeFileId, activeProjectId, handleFileSelect]
   );
+
+  const handleFolderExpand = useCallback(async (item: FileItem) => {
+    // Only fetch if it's a server-side folder and has no children yet
+    if (item.path && (!item.children || item.children.length === 0)) {
+      try {
+        const children = await fsService.listDirectory(item.path);
+        const childItems: FileItem[] = children.map(c => ({
+          id: `fs-${c.path}`,
+          name: c.name,
+          type: c.type,
+          path: c.path,
+          children: c.type === 'folder' ? [] : undefined
+        }));
+
+        setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, children: childItems })));
+      } catch (e) {
+        console.error("Failed to expand folder", e);
+      }
+    }
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab || !activeTab.isDirty) return;
+
+    let contentToSave = activeTab.content;
+    try {
+      const res = await eventService.fileSave({
+        path: activeTab.path ?? "",
+        name: activeTab.name,
+        language: getLanguage(activeTab.name),
+        content: activeTab.content,
+      });
+      contentToSave = res.content ?? activeTab.content;
+      if (contentToSave !== activeTab.content) {
+        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, content: contentToSave } : t));
+      }
+    } catch (_) {
+      // Backend down or event failed — save with current content
+    }
+
+    if (activeTab.path) {
+      try {
+        await fsService.writeFile(activeTab.path, contentToSave);
+        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, isDirty: false } : t));
+      } catch (e) {
+        console.error("Failed to save file to server", e);
+        alert("Failed to save file.");
+      }
+    } else if (activeProjectId) {
+      try {
+        await updateFile(activeTab.id, { content: contentToSave });
+        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, isDirty: false } : t));
+      } catch (e) {
+        console.error("Failed to save file to backend", e);
+      }
+    }
+  }, [tabs, activeProjectId]);
+
+  const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSelectionChange = useCallback((payload: { path?: string; name?: string; selectedText?: string; language?: string; startLine?: number; endLine?: number }) => {
+    if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
+    selectionDebounceRef.current = setTimeout(() => {
+      eventService.selectionChange(payload).catch(() => {});
+      selectionDebounceRef.current = null;
+    }, 300);
+  }, []);
+
+  // Determine the root path for the terminal
+  const rootPath = files.length > 0 && files[0].path ? files[0].path : undefined;
+
   // --- IDE Command Listeners ---
   useIdeCommandListener("view.explorer", () => setSidebarCollapsed((prev) => !prev));
   useIdeCommandListener("view.terminal", () => setTerminalVisible((prev) => !prev));
@@ -412,6 +509,32 @@ export default function HomePage() {
     }
   });
 
+  useIdeCommandListener("file.openLocalPath", async () => {
+    const path = prompt("Enter the absolute path of the project folder:", "X:\\Project-Buildings\\twitter-sentiment-analysis");
+    if (!path) return;
+
+    try {
+      const info = await fsService.checkExists(path);
+      if (info.exists && info.isDirectory) {
+        setFiles([{
+          id: `root-${Date.now()}`,
+          name: info.name,
+          type: "folder",
+          path: path,
+          children: [] // Will lazy load
+        }]);
+        setActiveProjectId(null);
+        setTabs([]);
+        setActiveFileId(null);
+      } else {
+        alert("Invalid directory path.");
+      }
+    } catch (e) {
+      console.error("Failed to open local path", e);
+      alert("Error connecting to backend file system service.");
+    }
+  });
+
   const handleFallbackDirectorySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const filesList = e.target.files;
     if (!filesList || filesList.length === 0) return;
@@ -424,10 +547,50 @@ export default function HomePage() {
       setActiveFileId(null);
     }
   };
-  useIdeCommandListener("file.preferences", () => setIsSettingsOpen(true));
+  useIdeCommandListener("file.preferences", () => {
+    setSettingsTab("general");
+    setIsSettingsOpen(true);
+  });
+  useIdeCommandListener("view.extensions", () => {
+    setSettingsTab("extensions");
+    setIsSettingsOpen(true);
+  });
+  useIdeCommandListener("help.about", () => {
+    setSettingsTab("about");
+    setIsSettingsOpen(true);
+  });
   useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
   useIdeCommandListener("file.closeEditor", () => {
     if (activeFileId) handleTabClose(activeFileId);
+  });
+  useIdeCommandListener("file.save", handleSave);
+  useIdeCommandListener("terminal.runActiveFile", async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab) return;
+    try {
+      const output = await commandService.runFile({
+        path: activeTab.path,
+        content: activeTab.content,
+        language: getLanguage(activeTab.name),
+      });
+      if (output) alert("Run output:\n\n" + output);
+    } catch (e: unknown) {
+      alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
+    }
+  });
+  useIdeCommandListener("run.runWithoutDebugging", async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab) return;
+    try {
+      const output = await commandService.runFile({
+        path: activeTab.path,
+        content: activeTab.content,
+        language: getLanguage(activeTab.name),
+      });
+      if (output) alert("Run output:\n\n" + output);
+    } catch (e: unknown) {
+      alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
+    }
   });
   useIdeCommandListener("file.exit", () => {
     if (confirm("Are you sure you want to exit the IDE?")) {
@@ -467,12 +630,14 @@ export default function HomePage() {
             onRename={handleRename}
             onDelete={handleDelete}
             onDuplicate={handleDuplicate}
+            onFolderExpand={handleFolderExpand}
           />
           <Editor
             tabs={tabs}
             onTabSelect={handleTabSelect}
             onTabClose={handleTabClose}
             onContentChange={handleContentChange}
+            onSelectionChange={handleSelectionChange}
           />
           <ChatPanel
             messages={messages}
@@ -486,6 +651,7 @@ export default function HomePage() {
           onClose={() => setTerminalVisible(false)}
           height={terminalHeight}
           onHeightChange={setTerminalHeight}
+          cwd={rootPath}
         />
       </div>
       <FileOperationDialog

@@ -1,0 +1,45 @@
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:8081/api/fs';
+
+export interface FileSystemItem {
+    name: string;
+    path: string;
+    type: 'file' | 'folder';
+    size: number;
+    lastModified: number;
+}
+
+export const fsService = {
+    /**
+     * Check if a path exists and is a directory
+     */
+    async checkExists(path: string): Promise<{ exists: boolean; isDirectory: boolean; name: string }> {
+        const response = await axios.get(`${API_BASE_URL}/exists`, { params: { path } });
+        return response.data;
+    },
+
+    /**
+     * List contents of a directory (shallow)
+     */
+    async listDirectory(path: string): Promise<FileSystemItem[]> {
+        const response = await axios.get(`${API_BASE_URL}/list`, { params: { path } });
+        return response.data;
+    },
+
+    /**
+     * Read file content
+     */
+    async readFile(path: string): Promise<string> {
+        const response = await axios.get(`${API_BASE_URL}/read`, { params: { path } });
+        return response.data;
+    },
+
+    /**
+     * Write file content
+     */
+    async writeFile(path: string, content: string): Promise<string> {
+        const response = await axios.post(`${API_BASE_URL}/write`, { path, content });
+        return response.data;
+    }
+};

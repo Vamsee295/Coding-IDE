@@ -1,28 +1,25 @@
-import { useState } from 'react';
-import { X, Moon, Shield, Box, Zap } from 'lucide-react';
+import { X, Moon, Zap, Puzzle, Info } from 'lucide-react';
 import { useSettings } from '@/react-app/contexts/SettingsContext';
 import { Switch } from '@/react-app/components/ui/switch';
 import { Slider } from '@/react-app/components/ui/slider';
 import { Input } from '@/react-app/components/ui/input';
 import { Button } from '@/react-app/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/react-app/components/ui/select';
-// Quick fix for icons
 import { Sliders, Type, FileCode, Bot, Server } from 'lucide-react';
+import ExtensionsPanel from '@/react-app/components/settings/ExtensionsPanel';
 
-
-
+// Settings sidebar: General, Editor, AI, Extensions, About (VS Code / Cursor style)
 const SETTING_TABS = [
     { id: 'general', label: 'General', icon: Sliders },
     { id: 'editor', label: 'Editor', icon: FileCode },
-    { id: 'ai', label: 'AI Assistant', icon: Bot },
-    { id: 'ollama', label: 'Ollama & Models', icon: Server },
-    { id: 'workspace', label: 'Workspace', icon: Box },
-    { id: 'privacy', label: 'Privacy & Security', icon: Shield },
+    { id: 'ai', label: 'AI', icon: Bot },
+    { id: 'extensions', label: 'Extensions', icon: Puzzle },
+    { id: 'about', label: 'About', icon: Info },
 ];
 
 export default function SettingsView() {
-    const { settings, updateSettings, isSettingsOpen, setIsSettingsOpen } = useSettings();
-    const [activeTab, setActiveTab] = useState('general');
+    const { settings, updateSettings, isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab } = useSettings();
+    const activeTab = settingsTab;
 
     if (!isSettingsOpen) return null;
 
@@ -55,7 +52,7 @@ export default function SettingsView() {
                             return (
                                 <button
                                     key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
+                                    onClick={() => setSettingsTab(tab.id)}
                                     className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab.id
                                         ? 'bg-ide-active text-ide-text-primary'
                                         : 'text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover'
@@ -207,7 +204,7 @@ export default function SettingsView() {
                             </div>
                         )}
 
-                        {/* --- AI ASSISTANT SETTINGS --- */}
+                        {/* --- AI (Assistant + Ollama & Models) --- */}
                         {activeTab === 'ai' && (
                             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
                                 <section className="space-y-4">
@@ -260,15 +257,10 @@ export default function SettingsView() {
                                         </div>
                                     </div>
                                 </section>
-                            </div>
-                        )}
 
-                        {/* --- OLLAMA SETTINGS --- */}
-                        {activeTab === 'ollama' && (
-                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
                                 <section className="space-y-4">
                                     <h3 className="text-sm font-semibold text-ide-text-secondary uppercase tracking-wider flex items-center gap-2">
-                                        <Server className="w-4 h-4" /> Ollama Endpoint Connection
+                                        <Server className="w-4 h-4" /> Ollama & Models
                                     </h3>
 
                                     <div className="p-5 rounded-xl border border-ide-border bg-[rgba(15,17,26,0.3)] space-y-4">
@@ -289,16 +281,7 @@ export default function SettingsView() {
                                                 Ollama configuration ready
                                             </p>
                                         </div>
-                                    </div>
-                                </section>
-
-                                <section className="space-y-4">
-                                    <h3 className="text-sm font-semibold text-ide-text-secondary uppercase tracking-wider flex items-center gap-2">
-                                        <Bot className="w-4 h-4" /> Model Selection
-                                    </h3>
-
-                                    <div className="p-5 rounded-xl border border-ide-border bg-[rgba(15,17,26,0.3)] space-y-4">
-                                        <div className="space-y-2">
+                                        <div className="pt-4 border-t border-ide-border space-y-2">
                                             <label className="text-xs font-medium text-ide-text-secondary uppercase tracking-wider">Active Language Model</label>
                                             <Select value={settings.aiModel} onValueChange={(v) => updateSettings({ aiModel: v })}>
                                                 <SelectTrigger className="w-full bg-[rgba(15,17,26,0.5)] border-ide-border">
@@ -320,14 +303,26 @@ export default function SettingsView() {
                             </div>
                         )}
 
-                        {/* --- PLACEHOLDERS --- */}
-                        {(activeTab === 'workspace' || activeTab === 'privacy') && (
-                            <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in duration-300">
-                                <Box className="w-16 h-16 text-ide-border mb-4" />
-                                <h3 className="text-lg font-medium text-ide-text-primary mb-2">Coming Soon</h3>
-                                <p className="text-sm text-ide-text-secondary max-w-sm">
-                                    This section is under active development. Check back in a future update for more settings.
-                                </p>
+                        {/* --- EXTENSIONS PANEL --- */}
+                        {activeTab === 'extensions' && (
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 h-full">
+                                <ExtensionsPanel />
+                            </div>
+                        )}
+
+                        {/* --- ABOUT --- */}
+                        {activeTab === 'about' && (
+                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                <section className="p-6 rounded-xl border border-ide-border bg-[rgba(15,17,26,0.3)]">
+                                    <h3 className="text-sm font-semibold text-ide-text-secondary uppercase tracking-wider mb-4">StackFlow IDE</h3>
+                                    <p className="text-ide-text-primary text-sm leading-relaxed mb-4">
+                                        A modular AI-powered IDE with extension support, local Ollama integration, and a professional editor experience.
+                                    </p>
+                                    <div className="text-xs text-ide-text-secondary space-y-1">
+                                        <p><strong className="text-ide-text-primary">Version:</strong> 1.0.0</p>
+                                        <p><strong className="text-ide-text-primary">Architecture:</strong> React + TypeScript + Monaco · Spring Boot · Extensions & Command Registry</p>
+                                    </div>
+                                </section>
                             </div>
                         )}
                     </div>

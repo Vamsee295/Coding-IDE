@@ -16,7 +16,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 // Allow WebSocket terminal and all API requests (dev mode)
-                .requestMatchers("/terminal", "/terminal/**", "/api/**").permitAll()
+                .requestMatchers("/terminal", "/terminal/**", "/api/**", "/events/**", "/commands/**").permitAll()
                 .anyRequest().permitAll()
             )
             .headers(headers -> headers

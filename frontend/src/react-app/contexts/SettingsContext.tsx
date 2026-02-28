@@ -48,7 +48,9 @@ interface SettingsContextType {
     updateSettings: (newSettings: Partial<AppSettings>) => void;
     resetSettings: () => void;
     isSettingsOpen: boolean;
-    setIsSettingsOpen: (isOpen: boolean) => void;
+    setIsSettingsOpen: (isOpen: boolean, tab?: string) => void;
+    settingsTab: string;
+    setSettingsTab: (tab: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -67,7 +69,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         return defaultSettings;
     });
 
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpenState] = useState(false);
+    const [settingsTab, setSettingsTab] = useState('general');
+
+    const setIsSettingsOpen = (isOpen: boolean, tab?: string) => {
+        setIsSettingsOpenState(isOpen);
+        if (isOpen && tab) setSettingsTab(tab);
+    };
 
     // Save to localStorage whenever settings change
     useEffect(() => {
@@ -96,7 +104,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <SettingsContext.Provider value={{ settings, updateSettings, resetSettings, isSettingsOpen, setIsSettingsOpen }}>
+        <SettingsContext.Provider value={{ settings, updateSettings, resetSettings, isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab }}>
             {children}
         </SettingsContext.Provider>
     );

@@ -6,6 +6,7 @@ export interface FileItem {
   content?: string;
   children?: FileItem[];
   isOpen?: boolean;
+  path?: string;
 }
 
 export interface ChatMessage {
@@ -22,6 +23,7 @@ export interface EditorTab {
   content: string;
   isActive: boolean;
   isDirty: boolean;
+  path?: string;
 }
 
 export interface ModelOption {

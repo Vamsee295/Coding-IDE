@@ -9,6 +9,7 @@ import {
   Search,
   GitBranch,
   Settings,
+  Puzzle,
   FileCode,
   FileJson,
   FileText,
@@ -17,6 +18,7 @@ import { FileItem } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
 import { Button } from "@/react-app/components/ui/button";
 import FileContextMenu from "./FileContextMenu";
+import { useSettings } from "@/react-app/contexts/SettingsContext";
 
 interface SidebarProps {
   files: FileItem[];
@@ -29,6 +31,7 @@ interface SidebarProps {
   onRename: (item: FileItem) => void;
   onDelete: (item: FileItem) => void;
   onDuplicate: (item: FileItem) => void;
+  onFolderExpand?: (item: FileItem) => void;
 }
 
 const getFileIcon = (filename: string) => {
@@ -65,6 +68,7 @@ interface FileTreeItemProps {
   onRename: (item: FileItem) => void;
   onDelete: (item: FileItem) => void;
   onDuplicate: (item: FileItem) => void;
+  onFolderExpand?: (item: FileItem) => void;
 }
 
 function FileTreeItem({
@@ -79,6 +83,7 @@ function FileTreeItem({
   onRename,
   onDelete,
   onDuplicate,
+  onFolderExpand,
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.id);
   const isActive = item.id === activeFileId;
@@ -95,7 +100,12 @@ function FileTreeItem({
           onDuplicate={onDuplicate}
         >
           <button
-            onClick={() => toggleFolder(item.id)}
+            onClick={() => {
+              toggleFolder(item.id);
+              if (!isExpanded && onFolderExpand) {
+                onFolderExpand(item);
+              }
+            }}
             className={cn(
               "w-full flex items-center gap-2 px-2 py-1.5 text-sm text-ide-text-secondary hover:bg-ide-hover transition-colors",
               "focus:outline-none focus:bg-ide-hover"
@@ -131,6 +141,7 @@ function FileTreeItem({
                 onRename={onRename}
                 onDelete={onDelete}
                 onDuplicate={onDuplicate}
+                onFolderExpand={onFolderExpand}
               />
             ))}
           </div>
@@ -177,6 +188,7 @@ export default function Sidebar({
   onRename,
   onDelete,
   onDuplicate,
+  onFolderExpand,
 }: SidebarProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "components"]));
 
@@ -192,6 +204,8 @@ export default function Sidebar({
     });
   };
 
+  const { setSettingsTab, setIsSettingsOpen } = useSettings();
+
   if (isCollapsed) {
     return (
       <aside className="w-12 bg-ide-sidebar border-r border-ide-border flex flex-col items-center py-3 gap-4 shrink-0">
@@ -200,6 +214,7 @@ export default function Sidebar({
           size="icon"
           onClick={onToggleCollapse}
           className="w-8 h-8 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+          title="Explorer"
         >
           <Folder className="w-5 h-5" />
         </Button>
@@ -207,6 +222,7 @@ export default function Sidebar({
           variant="ghost"
           size="icon"
           className="w-8 h-8 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+          title="Search"
         >
           <Search className="w-5 h-5" />
         </Button>
@@ -214,14 +230,29 @@ export default function Sidebar({
           variant="ghost"
           size="icon"
           className="w-8 h-8 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+          title="Source Control"
         >
           <GitBranch className="w-5 h-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            setSettingsTab("extensions");
+            setIsSettingsOpen(true);
+          }}
+          className="w-8 h-8 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+          title="Extensions"
+        >
+          <Puzzle className="w-5 h-5" />
         </Button>
         <div className="flex-1" />
         <Button
           variant="ghost"
           size="icon"
+          onClick={() => setIsSettingsOpen(true)}
           className="w-8 h-8 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+          title="Settings"
         >
           <Settings className="w-5 h-5" />
         </Button>
@@ -273,6 +304,7 @@ export default function Sidebar({
             onRename={onRename}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
+            onFolderExpand={onFolderExpand}
           />
         ))}
       </div>

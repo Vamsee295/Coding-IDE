@@ -1,16 +1,26 @@
 import MonacoEditor, { OnMount } from "@monaco-editor/react";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { X, Circle } from "lucide-react";
 import { EditorTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
 
+export type SelectionChangePayload = {
+  path?: string;
+  name?: string;
+  selectedText?: string;
+  language?: string;
+  startLine?: number;
+  endLine?: number;
+};
+
 interface EditorProps {
   tabs: EditorTab[];
   onTabSelect: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onContentChange: (tabId: string, content: string) => void;
+  onSelectionChange?: (payload: SelectionChangePayload) => void;
 }
 
 const getLanguage = (filename: string): string => {
@@ -39,14 +49,39 @@ const getLanguage = (filename: string): string => {
   }
 };
 
-export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange }: EditorProps) {
+export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange, onSelectionChange }: EditorProps) {
   const activeTab = tabs.find((t) => t.isActive);
   const { settings } = useSettings();
   const editorRef = useRef<any>(null);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+
+  const selectionDisposeRef = useRef<(() => void) | null>(null);
 
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
+    selectionDisposeRef.current?.();
+    if (onSelectionChangeRef.current && activeTab) {
+      const path = activeTab.path ?? "";
+      const name = activeTab.name;
+      const language = activeTab.language || getLanguage(activeTab.name);
+      selectionDisposeRef.current = editor.onDidChangeCursorSelection(() => {
+        const sel = editor.getSelection();
+        const model = editor.getModel();
+        const selectedText = sel && model ? model.getValueInRange(sel) : "";
+        onSelectionChangeRef.current?.({
+          path,
+          name,
+          selectedText,
+          language,
+          startLine: sel?.startLineNumber ?? 0,
+          endLine: sel?.endLineNumber ?? 0,
+        });
+      });
+    }
   };
+
+  useEffect(() => () => { selectionDisposeRef.current?.(); }, []);
 
   // Bind IDE Commands to Monaco editor actions
   useIdeCommandListener("edit.undo", () => editorRef.current?.trigger('menu', 'undo', null));

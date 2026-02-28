@@ -28,7 +28,7 @@ StackFlow-IDE is a modern, web-based Integrated Development Environment (IDE) bu
 
 1. Navigate to the backend directory:
    ```bash
-   cd "backend/IDE Backend/demo"
+   cd backend
    ```
 2. Configure your database in `src/main/resources/application.properties`.
 3. Run the application:
