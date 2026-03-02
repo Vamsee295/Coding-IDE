@@ -144,6 +144,14 @@ function FileTreeItem({
                 onFolderExpand={onFolderExpand}
               />
             ))}
+            {item.truncated && (
+              <div
+                className="py-1 px-2 text-[10px] text-yellow-500/70 italic border-l border-ide-border ml-2"
+                style={{ marginLeft: `${(depth + 1) * 12 + 8}px` }}
+              >
+                Folder truncated... (Limit: 500)
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -277,16 +285,6 @@ export default function Sidebar({
         </Button>
       </div>
 
-      {/* Project Name */}
-      <div className="px-3 py-2 border-b border-ide-border">
-        <button
-          onClick={onToggleCollapse}
-          className="flex items-center gap-2 text-sm font-medium text-ide-text-primary hover:text-indigo-400 transition-colors"
-        >
-          <ChevronDown className="w-4 h-4" />
-          <span>my-project</span>
-        </button>
-      </div>
 
       {/* File Tree */}
       <div className="flex-1 overflow-y-auto py-1">

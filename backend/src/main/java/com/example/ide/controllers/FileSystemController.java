@@ -32,21 +32,36 @@ public class FileSystemController {
 
         File[] files = directory.listFiles();
         if (files == null) {
-            return ResponseEntity.ok(new ArrayList<>());
+            Map<String, Object> empty = new HashMap<>();
+            empty.put("items", new ArrayList<>());
+            empty.put("truncated", false);
+            return ResponseEntity.ok(empty);
         }
 
-        List<Map<String, Object>> result = new ArrayList<>();
+        int LIMIT = 500;
+        boolean truncated = files.length > LIMIT;
+        
+        List<Map<String, Object>> resultItems = new ArrayList<>();
+        int count = 0;
         for (File file : files) {
+            if (count >= LIMIT) break;
+            
             Map<String, Object> item = new HashMap<>();
             item.put("name", file.getName());
             item.put("path", file.getAbsolutePath());
             item.put("type", file.isDirectory() ? "folder" : "file");
             item.put("size", file.length());
             item.put("lastModified", file.lastModified());
-            result.add(item);
+            resultItems.add(item);
+            count++;
         }
 
-        return ResponseEntity.ok(result);
+        Map<String, Object> response = new HashMap<>();
+        response.put("items", resultItems);
+        response.put("truncated", truncated);
+        response.put("totalCount", files.length);
+
+        return ResponseEntity.ok(response);
     }
 
     /**

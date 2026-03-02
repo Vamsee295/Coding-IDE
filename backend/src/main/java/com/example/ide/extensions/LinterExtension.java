@@ -42,6 +42,8 @@ public class LinterExtension implements IDEExtension {
             @Override public String getLabel() { return "Lint: Lint Current File"; }
             @Override public Object execute(java.util.Map<String, Object> payload) {
                 log.info("[LinterExtension] Linting document via ESLint...");
+                // Future: spawn `npx eslint --format json <file>` and parse output
+                // into Monaco diagnostic markers
                 return null;
             }
         });

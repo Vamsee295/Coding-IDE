@@ -17,6 +17,8 @@ public class Project {
     private String name;
 
     private String description;
+    private String rootPath;
+
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -83,5 +85,13 @@ public class Project {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getRootPath() {
+        return rootPath;
+    }
+
+    public void setRootPath(String rootPath) {
+        this.rootPath = rootPath;
     }
 }

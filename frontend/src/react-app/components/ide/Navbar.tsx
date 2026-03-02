@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
     Search,
     Settings,
@@ -8,6 +9,7 @@ import {
     User,
     Bell,
     Cpu,
+    Sparkles,
 } from "lucide-react";
 import { Button } from "@/react-app/components/ui/button";
 import {
@@ -29,182 +31,6 @@ interface NavbarProps {
     onModelChange: (model: string) => void;
 }
 
-type MenuItemDef =
-    | { type: "separator" }
-    | { type: "item"; label: string; shortcut?: string; commandId?: IdeCommandId; disabled?: boolean }
-    | { type: "submenu"; label: string; items: MenuItemDef[] };
-
-interface MenuDef {
-    name: string;
-    items: MenuItemDef[];
-}
-
-const ideMenus: MenuDef[] = [
-    {
-        name: "File",
-        items: [
-            { type: "item", label: "New Text File", shortcut: "Ctrl+N", commandId: "file.newTextFile" },
-            { type: "item", label: "New File...", shortcut: "Ctrl+Alt+Windows+N", commandId: "file.newFile" },
-            { type: "item", label: "New Window", shortcut: "Ctrl+Shift+N", commandId: "file.newWindow" },
-            { type: "submenu", label: "New Window with Profile", items: [] },
-            { type: "separator" },
-            { type: "item", label: "Open File...", shortcut: "Ctrl+O", commandId: "file.openFile" },
-            { type: "item", label: "Open Folder...", shortcut: "Ctrl+K Ctrl+O", commandId: "file.openFolder" },
-            { type: "item", label: "Open Local Folder...", shortcut: "Ctrl+Shift+O", commandId: "file.openLocalPath" },
-            { type: "submenu", label: "Open Recent", items: [] },
-            { type: "separator" },
-            { type: "item", label: "Add Folder to Workspace..." },
-            { type: "item", label: "Save Workspace As..." },
-            { type: "item", label: "Duplicate Workspace..." },
-            { type: "separator" },
-            { type: "item", label: "Save", shortcut: "Ctrl+S", commandId: "file.save" },
-            { type: "item", label: "Save As...", shortcut: "Ctrl+Shift+S", commandId: "file.saveAs" },
-            { type: "item", label: "Save All", shortcut: "Ctrl+K S", commandId: "file.saveAll" },
-            { type: "separator" },
-            { type: "submenu", label: "Share", items: [] },
-            { type: "separator" },
-            { type: "item", label: "Auto Save", commandId: "file.autoSave" },
-            { type: "item", label: "Preferences", commandId: "file.preferences" },
-            { type: "separator" },
-            { type: "item", label: "Revert File" },
-            { type: "item", label: "Close Editor", shortcut: "Ctrl+F4", commandId: "file.closeEditor" },
-            { type: "item", label: "Close Folder", shortcut: "Ctrl+K F", commandId: "file.closeFolder" },
-            { type: "item", label: "Close Window", shortcut: "Alt+F4", commandId: "file.closeWindow" },
-            { type: "separator" },
-            { type: "item", label: "Exit", commandId: "file.exit" }
-        ]
-    },
-    {
-        name: "Edit",
-        items: [
-            { type: "item", label: "Undo", shortcut: "Ctrl+Z", commandId: "edit.undo" },
-            { type: "item", label: "Redo", shortcut: "Ctrl+Y", commandId: "edit.redo" },
-            { type: "separator" },
-            { type: "item", label: "Cut", shortcut: "Ctrl+X", commandId: "edit.cut" },
-            { type: "item", label: "Copy", shortcut: "Ctrl+C", commandId: "edit.copy" },
-            { type: "item", label: "Paste", shortcut: "Ctrl+V", commandId: "edit.paste" },
-            { type: "separator" },
-            { type: "item", label: "Find", shortcut: "Ctrl+F", commandId: "edit.find" },
-            { type: "item", label: "Replace", shortcut: "Ctrl+H", commandId: "edit.replace" },
-            { type: "separator" },
-            { type: "item", label: "Find in Files", shortcut: "Ctrl+Shift+F", commandId: "edit.findInFiles" },
-            { type: "item", label: "Replace in Files", shortcut: "Ctrl+Shift+H", commandId: "edit.replaceInFiles" },
-            { type: "separator" },
-            { type: "item", label: "Toggle Line Comment", shortcut: "Ctrl+/", commandId: "edit.toggleLineComment" },
-            { type: "item", label: "Toggle Block Comment", shortcut: "Shift+Alt+A", commandId: "edit.toggleBlockComment" }
-        ]
-    },
-    {
-        name: "Selection",
-        items: [
-            { type: "item", label: "Select All", shortcut: "Ctrl+A", commandId: "selection.selectAll" },
-            { type: "item", label: "Expand Selection", shortcut: "Shift+Alt+RightArrow", commandId: "selection.expandSelection" },
-            { type: "item", label: "Shrink Selection", shortcut: "Shift+Alt+LeftArrow", commandId: "selection.shrinkSelection" },
-            { type: "separator" },
-            { type: "item", label: "Copy Line Up", shortcut: "Shift+Alt+UpArrow", commandId: "selection.copyLineUp" },
-            { type: "item", label: "Copy Line Down", shortcut: "Shift+Alt+DownArrow", commandId: "selection.copyLineDown" },
-            { type: "item", label: "Move Line Up", shortcut: "Alt+UpArrow", commandId: "selection.moveLineUp" },
-            { type: "item", label: "Move Line Down", shortcut: "Alt+DownArrow", commandId: "selection.moveLineDown" },
-            { type: "item", label: "Duplicate Selection", commandId: "selection.duplicateSelection" },
-            { type: "separator" },
-            { type: "item", label: "Add Cursor Above", shortcut: "Ctrl+Alt+UpArrow" },
-            { type: "item", label: "Add Cursor Below", shortcut: "Ctrl+Alt+DownArrow" },
-            { type: "item", label: "Add Cursors to Line Ends", shortcut: "Shift+Alt+I" },
-            { type: "item", label: "Add Next Occurrence", shortcut: "Ctrl+D" }
-        ]
-    },
-    {
-        name: "View",
-        items: [
-            { type: "item", label: "Command Palette...", shortcut: "Ctrl+Shift+P", commandId: "view.commandPalette" },
-            { type: "separator" },
-            { type: "item", label: "Explorer", shortcut: "Ctrl+Shift+E", commandId: "view.explorer" },
-            { type: "item", label: "Search", shortcut: "Ctrl+Shift+F", commandId: "view.search" },
-            { type: "item", label: "Extensions", shortcut: "Ctrl+Shift+X", commandId: "view.extensions" },
-            { type: "separator" },
-            { type: "item", label: "Terminal", shortcut: "Ctrl+`", commandId: "view.terminal" },
-            { type: "separator" },
-            { type: "item", label: "Word Wrap", shortcut: "Alt+Z", commandId: "view.wordWrap" }
-        ]
-    },
-    {
-        name: "Go",
-        items: [
-            { type: "item", label: "Go to File...", shortcut: "Ctrl+P", commandId: "go.goToFile" },
-            { type: "item", label: "Go to Symbol in Workspace...", shortcut: "Ctrl+T", commandId: "go.goToSymbol" },
-            { type: "item", label: "Go to Symbol in Editor...", shortcut: "Ctrl+Shift+O", commandId: "go.goToSymbol" },
-            { type: "separator" },
-            { type: "item", label: "Go to Definition", shortcut: "F12", commandId: "go.goToDefinition" },
-            { type: "separator" },
-            { type: "item", label: "Go to Line/Column...", shortcut: "Ctrl+G", commandId: "go.goToLine" }
-        ]
-    },
-    {
-        name: "Run",
-        items: [
-            { type: "item", label: "Start Debugging", shortcut: "F5", commandId: "run.startDebugging" },
-            { type: "item", label: "Run Without Debugging", shortcut: "Ctrl+F5", commandId: "run.runWithoutDebugging" },
-            { type: "item", label: "Stop Debugging", shortcut: "Shift+F5", commandId: "run.stopDebugging", disabled: true },
-            { type: "item", label: "Restart Debugging", shortcut: "Ctrl+Shift+F5", commandId: "run.restartDebugging", disabled: true },
-            { type: "separator" },
-            { type: "item", label: "Open Configurations", commandId: "run.openConfigurations" },
-            { type: "item", label: "Add Configuration...", commandId: "run.addConfiguration" },
-            { type: "separator" },
-            { type: "item", label: "Step Over", shortcut: "F10", commandId: "run.stepOver", disabled: true },
-            { type: "item", label: "Step Into", shortcut: "F11", commandId: "run.stepInto", disabled: true },
-            { type: "item", label: "Step Out", shortcut: "Shift+F11", commandId: "run.stepOut", disabled: true },
-            { type: "item", label: "Continue", shortcut: "F5", commandId: "run.continue", disabled: true },
-            { type: "separator" },
-            { type: "item", label: "Toggle Breakpoint", shortcut: "F9", commandId: "run.toggleBreakpoint" },
-            { type: "submenu", label: "New Breakpoint", items: [] },
-            { type: "separator" },
-            { type: "item", label: "Enable All Breakpoints", commandId: "run.enableAllBreakpoints" },
-            { type: "item", label: "Disable All Breakpoints", commandId: "run.disableAllBreakpoints" },
-            { type: "item", label: "Remove All Breakpoints", commandId: "run.removeAllBreakpoints" },
-            { type: "separator" },
-            { type: "item", label: "Install Additional Debuggers...", commandId: "run.installDebuggers" }
-        ]
-    },
-    {
-        name: "Terminal",
-        items: [
-            { type: "item", label: "New Terminal", shortcut: "Ctrl+Shift+`", commandId: "terminal.newTerminal" },
-            { type: "item", label: "Split Terminal", shortcut: "Ctrl+Shift+5", commandId: "terminal.splitTerminal" },
-            { type: "item", label: "New Terminal Window", shortcut: "Ctrl+Shift+Alt+`", commandId: "terminal.newTerminalWindow" },
-            { type: "separator" },
-            { type: "item", label: "Run Task...", commandId: "terminal.runTask" },
-            { type: "item", label: "Run Build Task...", shortcut: "Ctrl+Shift+B", commandId: "terminal.runBuildTask" },
-            { type: "item", label: "Run Active File", commandId: "terminal.runActiveFile" },
-            { type: "item", label: "Run Selected Text", commandId: "terminal.runSelectedText" },
-            { type: "separator" },
-            { type: "item", label: "Show Running Tasks...", commandId: "terminal.runTask" },
-            { type: "item", label: "Restart Running Task...", commandId: "terminal.runTask" },
-            { type: "item", label: "Terminate Task...", commandId: "terminal.runTask" },
-            { type: "separator" },
-            { type: "item", label: "Configure Tasks...", commandId: "terminal.configureTasks" },
-            { type: "item", label: "Configure Default Build Task...", commandId: "terminal.configureTasks" }
-        ]
-    },
-    {
-        name: "Help",
-        items: [
-            { type: "item", label: "Welcome", commandId: "help.welcome" },
-            { type: "item", label: "Show All Commands", shortcut: "Ctrl+Shift+P", commandId: "help.showCommands" },
-            { type: "item", label: "Editor Playground", commandId: "help.playground" },
-            { type: "item", label: "Open Walkthrough...", commandId: "help.walkthrough" },
-            { type: "separator" },
-            { type: "item", label: "View License", commandId: "help.viewLicense" },
-            { type: "separator" },
-            { type: "item", label: "Toggle Developer Tools", commandId: "help.toggleDevTools" },
-            { type: "item", label: "Open Process Explorer", commandId: "help.processExplorer" },
-            { type: "separator" },
-            { type: "item", label: "Check for Updates...", commandId: "help.checkUpdates" },
-            { type: "separator" },
-            { type: "item", label: "About", commandId: "help.about" }
-        ]
-    }
-];
-
 const models = [
     { id: "qwen2.5-coder:7b", name: "Qwen 2.5 Coder 7B" },
     { id: "qwen2.5-coder:14b", name: "Qwen 2.5 Coder 14B" },
@@ -212,7 +38,17 @@ const models = [
     { id: "deepseek-coder:6.7b", name: "DeepSeek Coder" },
 ];
 
-function renderMenuItem(item: MenuItemDef, index: number, dispatchMethod: (id: IdeCommandId) => void) {
+type MenuItemDef =
+    | { type: "separator" }
+    | { type: "item"; label: string; shortcut?: string; commandId?: IdeCommandId; disabled?: boolean; onClick?: () => void }
+    | { type: "submenu"; label: string; items: MenuItemDef[] };
+
+interface MenuDef {
+    name: string;
+    items: MenuItemDef[];
+}
+
+function renderMenuItem(item: MenuItemDef, index: number, dispatchMethod: (id: IdeCommandId, payload?: any) => void) {
     if (item.type === "separator") {
         return <DropdownMenuSeparator key={`sep-${index}`} />;
     }
@@ -236,8 +72,13 @@ function renderMenuItem(item: MenuItemDef, index: number, dispatchMethod: (id: I
         <DropdownMenuItem
             key={`item-${index}-${item.label}`}
             className="text-xs text-ide-text-primary hover:bg-ide-hover focus:bg-ide-hover cursor-pointer py-1.5 focus:text-white"
-            disabled={item.disabled}
-            onClick={() => item.commandId && dispatchMethod(item.commandId)}
+            onClick={() => {
+                if (item.onClick) {
+                    item.onClick();
+                } else if (item.commandId) {
+                    dispatchMethod(item.commandId);
+                }
+            }}
         >
             {item.label}
             {item.shortcut && <DropdownMenuShortcut className="text-ide-text-secondary">{item.shortcut}</DropdownMenuShortcut>}
@@ -247,8 +88,192 @@ function renderMenuItem(item: MenuItemDef, index: number, dispatchMethod: (id: I
 
 export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
     const currentModel = models.find((m) => m.id === selectedModel) || models[0];
-    const { setIsSettingsOpen } = useSettings(); // Use context to toggle SettingsView
+    const { settings, setIsSettingsOpen } = useSettings(); // Use context to toggle SettingsView and read autoSave
     const { dispatchCommand } = useIdeCommand();
+    const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
+
+    useEffect(() => {
+        try {
+            const history = localStorage.getItem("ide-recent-workspaces");
+            if (history) {
+                setRecentWorkspaces(JSON.parse(history));
+            }
+        } catch (e) { }
+    }, []);
+
+    // Reconstruct the Menu array dynamically to parse states
+    const ideMenus: MenuDef[] = [
+        {
+            name: "File",
+            items: [
+                { type: "item", label: "New Text File", shortcut: "Ctrl+N", commandId: "file.newTextFile" },
+                { type: "item", label: "New File...", shortcut: "Ctrl+Alt+Windows+N", commandId: "file.newFile" },
+                { type: "item", label: "New Window", shortcut: "Ctrl+Shift+N", commandId: "file.newWindow" },
+                { type: "submenu", label: "New Window with Profile", items: [] },
+                { type: "separator" },
+                { type: "item", label: "Open File...", shortcut: "Ctrl+O", commandId: "file.openFile" },
+                { type: "item", label: "Open Folder...", shortcut: "Ctrl+K Ctrl+O", commandId: "file.openFolder" },
+                { type: "item", label: "Open Local Folder...", shortcut: "Ctrl+Shift+O", commandId: "file.openLocalPath" },
+                {
+                    type: "submenu", label: "Open Recent", items: recentWorkspaces.map((path: string) => ({
+                        type: "item",
+                        label: path,
+                        onClick: () => dispatchCommand("file.openRecent", path)
+                    }))
+                },
+                { type: "separator" },
+                { type: "item", label: "Add Folder to Workspace...", commandId: "file.addFolderToWorkspace" },
+                { type: "item", label: "Save Workspace As...", commandId: "file.saveWorkspaceAs" },
+                { type: "item", label: "Duplicate Workspace...", commandId: "file.duplicateWorkspace" },
+                { type: "separator" },
+                { type: "item", label: "Save", shortcut: "Ctrl+S", commandId: "file.save" },
+                { type: "item", label: "Save As...", shortcut: "Ctrl+Shift+S", commandId: "file.saveAs" },
+                { type: "item", label: "Save All", shortcut: "Ctrl+K S", commandId: "file.saveAll" },
+                { type: "separator" },
+                { type: "submenu", label: "Share", items: [] },
+                { type: "separator" },
+                { type: "item", label: `Auto Save ${settings.autoSave ? "✓" : ""}`, commandId: "file.autoSave" },
+                { type: "item", label: "Preferences", commandId: "file.preferences" },
+                { type: "separator" },
+                { type: "item", label: "Revert File" },
+                { type: "item", label: "Close Editor", shortcut: "Ctrl+F4", commandId: "file.closeEditor" },
+                { type: "item", label: "Close Folder", shortcut: "Ctrl+K F", commandId: "file.closeFolder" },
+                { type: "item", label: "Close Window", shortcut: "Alt+F4", commandId: "file.closeWindow" },
+                { type: "separator" },
+                { type: "item", label: "Exit", commandId: "file.exit" }
+            ]
+        },
+        {
+            name: "Edit",
+            items: [
+                { type: "item", label: "Undo", shortcut: "Ctrl+Z", commandId: "edit.undo" },
+                { type: "item", label: "Redo", shortcut: "Ctrl+Y", commandId: "edit.redo" },
+                { type: "separator" },
+                { type: "item", label: "Cut", shortcut: "Ctrl+X", commandId: "edit.cut" },
+                { type: "item", label: "Copy", shortcut: "Ctrl+C", commandId: "edit.copy" },
+                { type: "item", label: "Paste", shortcut: "Ctrl+V", commandId: "edit.paste" },
+                { type: "separator" },
+                { type: "item", label: "Find", shortcut: "Ctrl+F", commandId: "edit.find" },
+                { type: "item", label: "Replace", shortcut: "Ctrl+H", commandId: "edit.replace" },
+                { type: "separator" },
+                { type: "item", label: "Find in Files", shortcut: "Ctrl+Shift+F", commandId: "edit.findInFiles" },
+                { type: "item", label: "Replace in Files", shortcut: "Ctrl+Shift+H", commandId: "edit.replaceInFiles" },
+                { type: "separator" },
+                { type: "item", label: "Toggle Line Comment", shortcut: "Ctrl+/", commandId: "edit.toggleLineComment" },
+                { type: "item", label: "Toggle Block Comment", shortcut: "Shift+Alt+A", commandId: "edit.toggleBlockComment" }
+            ]
+        },
+        {
+            name: "Selection",
+            items: [
+                { type: "item", label: "Select All", shortcut: "Ctrl+A", commandId: "selection.selectAll" },
+                { type: "item", label: "Expand Selection", shortcut: "Shift+Alt+RightArrow", commandId: "selection.expandSelection" },
+                { type: "item", label: "Shrink Selection", shortcut: "Shift+Alt+LeftArrow", commandId: "selection.shrinkSelection" },
+                { type: "separator" },
+                { type: "item", label: "Copy Line Up", shortcut: "Shift+Alt+UpArrow", commandId: "selection.copyLineUp" },
+                { type: "item", label: "Copy Line Down", shortcut: "Shift+Alt+DownArrow", commandId: "selection.copyLineDown" },
+                { type: "item", label: "Move Line Up", shortcut: "Alt+UpArrow", commandId: "selection.moveLineUp" },
+                { type: "item", label: "Move Line Down", shortcut: "Alt+DownArrow", commandId: "selection.moveLineDown" },
+                { type: "item", label: "Duplicate Selection", commandId: "selection.duplicateSelection" },
+                { type: "separator" },
+                { type: "item", label: "Add Cursor Above", shortcut: "Ctrl+Alt+UpArrow" },
+                { type: "item", label: "Add Cursor Below", shortcut: "Ctrl+Alt+DownArrow" },
+                { type: "item", label: "Add Cursors to Line Ends", shortcut: "Shift+Alt+I" },
+                { type: "item", label: "Add Next Occurrence", shortcut: "Ctrl+D" }
+            ]
+        },
+        {
+            name: "View",
+            items: [
+                { type: "item", label: "Command Palette...", shortcut: "Ctrl+Shift+P", commandId: "view.commandPalette" },
+                { type: "separator" },
+                { type: "item", label: "Explorer", shortcut: "Ctrl+Shift+E", commandId: "view.explorer" },
+                { type: "item", label: "Search", shortcut: "Ctrl+Shift+F", commandId: "view.search" },
+                { type: "item", label: "Extensions", shortcut: "Ctrl+Shift+X", commandId: "view.extensions" },
+                { type: "separator" },
+                { type: "item", label: "AI Chat", commandId: "view.toggleAiChat" },
+                { type: "item", label: "Terminal", shortcut: "Ctrl+`", commandId: "view.terminal" },
+                { type: "separator" },
+                { type: "item", label: "Word Wrap", shortcut: "Alt+Z", commandId: "view.wordWrap" }
+            ]
+        },
+        {
+            name: "Go",
+            items: [
+                { type: "item", label: "Go to File...", shortcut: "Ctrl+P", commandId: "go.goToFile" },
+                { type: "item", label: "Go to Symbol in Workspace...", shortcut: "Ctrl+T", commandId: "go.goToSymbol" },
+                { type: "item", label: "Go to Symbol in Editor...", shortcut: "Ctrl+Shift+O", commandId: "go.goToSymbol" },
+                { type: "separator" },
+                { type: "item", label: "Go to Definition", shortcut: "F12", commandId: "go.goToDefinition" },
+                { type: "separator" },
+                { type: "item", label: "Go to Line/Column...", shortcut: "Ctrl+G", commandId: "go.goToLine" }
+            ]
+        },
+        {
+            name: "Run",
+            items: [
+                { type: "item", label: "Start Debugging", shortcut: "F5", commandId: "run.startDebugging" },
+                { type: "item", label: "Run Without Debugging", shortcut: "Ctrl+F5", commandId: "run.runWithoutDebugging" },
+                { type: "item", label: "Stop Debugging", shortcut: "Shift+F5", commandId: "run.stopDebugging", disabled: true },
+                { type: "item", label: "Restart Debugging", shortcut: "Ctrl+Shift+F5", commandId: "run.restartDebugging", disabled: true },
+                { type: "separator" },
+                { type: "item", label: "Open Configurations", commandId: "run.openConfigurations" },
+                { type: "item", label: "Add Configuration...", commandId: "run.addConfiguration" },
+                { type: "separator" },
+                { type: "item", label: "Step Over", shortcut: "F10", commandId: "run.stepOver", disabled: true },
+                { type: "item", label: "Step Into", shortcut: "F11", commandId: "run.stepInto", disabled: true },
+                { type: "item", label: "Step Out", shortcut: "Shift+F11", commandId: "run.stepOut", disabled: true },
+                { type: "item", label: "Continue", shortcut: "F5", commandId: "run.continue", disabled: true },
+                { type: "separator" },
+                { type: "item", label: "Toggle Breakpoint", shortcut: "F9", commandId: "run.toggleBreakpoint" },
+                { type: "submenu", label: "New Breakpoint", items: [] },
+                { type: "separator" },
+                { type: "item", label: "Enable All Breakpoints", commandId: "run.enableAllBreakpoints" },
+                { type: "item", label: "Disable All Breakpoints", commandId: "run.disableAllBreakpoints" },
+                { type: "item", label: "Remove All Breakpoints", commandId: "run.removeAllBreakpoints" },
+                { type: "separator" },
+                { type: "item", label: "Install Additional Debuggers...", commandId: "run.installDebuggers" }
+            ]
+        },
+        {
+            name: "Terminal",
+            items: [
+                { type: "item", label: "New Terminal", shortcut: "Ctrl+Shift+`", commandId: "terminal.newTerminal" },
+                { type: "item", label: "Split Terminal", shortcut: "Ctrl+Shift+5", commandId: "terminal.splitTerminal" },
+                { type: "item", label: "New Terminal Window", shortcut: "Ctrl+Shift+Alt+`", commandId: "terminal.newTerminalWindow" },
+                { type: "separator" },
+                { type: "item", label: "Run Task...", commandId: "terminal.runTask" },
+                { type: "item", label: "Run Build Task...", shortcut: "Ctrl+Shift+B", commandId: "terminal.runBuildTask" },
+                { type: "item", label: "Run Active File", commandId: "terminal.runActiveFile" },
+                { type: "item", label: "Run Selected Text", commandId: "terminal.runSelectedText" },
+                { type: "separator" },
+                { type: "item", label: "Show Running Tasks...", commandId: "terminal.runTask" },
+                { type: "item", label: "Restart Running Task...", commandId: "terminal.runTask" },
+                { type: "item", label: "Terminate Task...", commandId: "terminal.runTask" },
+                { type: "separator" },
+                { type: "item", label: "Configure Tasks...", commandId: "terminal.configureTasks" },
+                { type: "item", label: "Configure Default Build Task...", commandId: "terminal.configureTasks" }
+            ]
+        },
+        {
+            name: "Help",
+            items: [
+                { type: "item", label: "Welcome", commandId: "help.welcome" },
+                { type: "item", label: "Show All Commands", shortcut: "Ctrl+Shift+P", commandId: "help.showCommands" },
+                { type: "item", label: "Editor Playground", commandId: "help.playground" },
+                { type: "item", label: "Open Walkthrough...", commandId: "help.walkthrough" },
+                { type: "separator" },
+                { type: "item", label: "View License", commandId: "help.viewLicense" },
+                { type: "separator" },
+                { type: "item", label: "Toggle Developer Tools", commandId: "help.toggleDevTools" },
+                { type: "item", label: "Open Process Explorer", commandId: "help.processExplorer" },
+                { type: "separator" },
+                { type: "item", label: "Check for Updates...", commandId: "help.checkUpdates" },
+                { type: "separator" },
+                { type: "item", label: "About", commandId: "help.about" }
+            ]
+        }
+    ];
 
     return (
         <header className="h-9 bg-ide-sidebar border-b border-ide-border flex items-center shrink-0">
@@ -336,6 +361,19 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                     <Download className="w-4 h-4" />
                 </Button>
                 {/* SETTINGS BUTTON OPEN TRIGGERS THE CONTEXT STATE */}
+                {/* AI TOGGLE BUTTON */}
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => dispatchCommand("view.toggleAiChat")}
+                    className="h-7 w-7 text-ide-text-secondary hover:text-indigo-400 hover:bg-ide-hover focus-visible:ring-0"
+                    title="Toggle AI Assistant"
+                >
+                    <Sparkles className="w-4 h-4" />
+                </Button>
+
+                <div className="w-px h-4 bg-ide-border mx-1" />
+
                 <Button
                     variant="ghost"
                     size="icon"

@@ -7,6 +7,14 @@ export interface FileItem {
   children?: FileItem[];
   isOpen?: boolean;
   path?: string;
+  truncated?: boolean;
+}
+
+export interface AIAction {
+  type: "write_file" | "create_file" | "run_command";
+  path?: string;
+  content?: string;
+  command?: string;
 }
 
 export interface ChatMessage {
@@ -14,6 +22,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  actions?: AIAction[];
 }
 
 export interface EditorTab {

@@ -1,28 +1,40 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Terminal as TerminalIcon, X, Plus, ChevronDown, Trash2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import { Terminal as TerminalIcon, X, Plus, ChevronDown, Trash2, Play, Download } from "lucide-react";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
+import axios from "axios";
+import { io, Socket } from "socket.io-client";
+import { useExtensions } from "@/react-app/contexts/ExtensionContext";
 
-const BACKEND_WS_URL = "ws://localhost:8081/api/terminal";
+const BACKEND_WS_URL = "http://localhost:8082";
+const BACKEND_API_URL = "http://localhost:8081/api";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface TerminalTab {
-  id: string;
+  id: string;          // local tab id (used as React key)
+  terminalId: string;  // backend PTY id (empty until "terminal-created" arrives)
   name: string;
+  cwd: string;
   isActive: boolean;
 }
 
-// One persistent shell session per tab
 interface TabSession {
   terminal: Terminal;
   fitAddon: FitAddon;
-  socket: WebSocket | null;
-  inputBuffer: string;   // local line buffer (chars typed since last Enter)
-  history: string[];     // command history
-  historyIndex: number;  // current history position
+}
+
+export interface TerminalPanelHandle {
+  /** Open a brand-new terminal tab rooted at `path`. */
+  openTerminalForWorkspace: (path: string) => void;
+  /** Run a direct command string in the active terminal. */
+  executeCommand: (command: string) => void;
 }
 
 interface TerminalPanelProps {
@@ -30,231 +42,328 @@ interface TerminalPanelProps {
   onClose: () => void;
   height: number;
   onHeightChange: (height: number) => void;
-  cwd?: string;
+  /** Initial workspace path — used only for the very first terminal. */
+  initialCwd?: string;
 }
 
-export default function TerminalPanel({
+// ─────────────────────────────────────────────────────────────────────────────
+// TerminalPanel
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(function TerminalPanelInner({
   isVisible,
   onClose,
   height,
   onHeightChange,
-  cwd,
-}: TerminalPanelProps) {
-  const [tabs, setTabs] = useState<TerminalTab[]>([
-    { id: "terminal-1", name: "PowerShell", isActive: true },
-  ]);
+  initialCwd,
+}, ref) {
+  const { isExtensionEnabled } = useExtensions();
 
+  const runnerEnabled = isExtensionEnabled("auto-runner");
+  const langManagerEnabled = isExtensionEnabled("language-manager");
+
+  const AVAILABLE_QUICK_COMMANDS = [
+    { label: "▶  Run Project", command: "autoRun", icon: <Play className="w-3.5 h-3.5" />, enabled: runnerEnabled },
+    { label: "📦 Install Dependencies", command: "autoRun", icon: <Download className="w-3.5 h-3.5" />, enabled: runnerEnabled },
+    { label: "⬇  Install Node.js", command: "installNode", icon: null, enabled: langManagerEnabled },
+    { label: "⬇  Install Python 3", command: "installPython", icon: null, enabled: langManagerEnabled },
+    { label: "⬇  Install Java 21", command: "installJava", icon: null, enabled: langManagerEnabled },
+    { label: "⬇  Install Maven", command: "installMaven", icon: null, enabled: langManagerEnabled },
+  ].filter(cmd => cmd.enabled);
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [tabs, setTabs] = useState<TerminalTab[]>([]);
+  const [showQuickCommands, setShowQuickCommands] = useState(false);
+
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  /** xterm sessions keyed by tab.id (local) */
   const sessions = useRef<Map<string, TabSession>>(new Map());
+  /** Backend PTY terminalId keyed by tab.id (local) */
+  const terminalIds = useRef<Map<string, string>>(new Map());
+
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const resizeStartY = useRef(0);
   const resizeStartHeight = useRef(0);
 
-  // ─── WebSocket ──────────────────────────────────────────────────────────
+  /** Single shared Socket.io connection */
+  const socketRef = useRef<Socket | null>(null);
 
-  const connectWebSocket = useCallback((_tabId: string, session: TabSession, currentCwd?: string) => {
-    let wsUrl = BACKEND_WS_URL;
-    if (currentCwd) {
-      wsUrl += `?cwd=${encodeURIComponent(currentCwd)}`;
-    }
-    const ws = new WebSocket(wsUrl);
-    session.socket = ws;
+  /** Callbacks awaiting a `terminal-created` response — keyed by pending tabId */
+  const pendingCreations = useRef<Map<string, (terminalId: string) => void>>(new Map());
 
-    ws.onmessage = (event: MessageEvent) => {
-      // All shell output (including the PS prompt) arrives here — write directly
-      session.terminal.write(event.data as string);
-    };
+  // ── Socket Setup (one connection shared across all tabs) ──────────────────
 
-    ws.onerror = () => {
-      session.terminal.write(
-        "\r\n\u001B[1;31m[WebSocket Error]\u001B[0m Cannot connect to backend at " +
-        BACKEND_WS_URL +
-        "\r\nMake sure Spring Boot is running.\r\n"
-      );
-    };
+  useEffect(() => {
+    const socket = io(BACKEND_WS_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+    });
+    socketRef.current = socket;
 
-    ws.onclose = () => {
-      session.terminal.write("\r\n\u001B[90m[Session closed]\u001B[0m\r\n");
+    socket.on("connect", () => {
+      console.log("[TerminalPanel] Socket connected:", socket.id);
+    });
+
+    // Route output to the correct xterm instance
+    socket.on("terminal-output", ({ terminalId, data }: { terminalId: string; data: string | ArrayBuffer }) => {
+      // Find the tab that owns this terminalId
+      let ownerTabId: string | undefined;
+      terminalIds.current.forEach((tid, tabId) => {
+        if (tid === terminalId) ownerTabId = tabId;
+      });
+      if (!ownerTabId) return;
+      const session = sessions.current.get(ownerTabId);
+      if (!session) return;
+      if (typeof data === "string") {
+        session.terminal.write(data);
+      } else if (data instanceof ArrayBuffer) {
+        session.terminal.write(new Uint8Array(data));
+      }
+    });
+
+    // Backend confirmed PTY creation — resolve the pending callback
+    socket.on("terminal-created", ({ terminalId }: { terminalId: string }) => {
+      console.log("[TerminalPanel] terminal-created:", terminalId);
+      // Find which local tab was waiting for this — match via pendingCreations
+      // We use a simple FIFO model: first pending creation gets the first response
+      const firstKey = [...pendingCreations.current.keys()][0];
+      if (firstKey) {
+        const resolve = pendingCreations.current.get(firstKey)!;
+        pendingCreations.current.delete(firstKey);
+        resolve(terminalId);
+      }
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("[TerminalPanel] Connection error:", err.message);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("[TerminalPanel] Socket disconnected.");
+    });
+
+    return () => {
+      socket.disconnect();
     };
   }, []);
 
-  // ─── Session creation ────────────────────────────────────────────────────
+  // ── xterm Session Helpers ─────────────────────────────────────────────────
 
-  const createSession = useCallback(
-    (tabId: string, container: HTMLDivElement): TabSession => {
-      const term = new Terminal({
-        fontFamily: '"Cascadia Code", "Cascadia Mono", "Fira Code", "JetBrains Mono", monospace',
-        fontSize: 13,
-        lineHeight: 1.45,
-        cursorBlink: true,
-        cursorStyle: "bar",
-        allowTransparency: true,
-        scrollback: 10000,
-        theme: {
-          background: "#0f111a",
-          foreground: "#cdd6f4",
-          cursor: "#cdd6f4",
-          selectionBackground: "#45475a",
-          black: "#45475a",
-          red: "#f38ba8",
-          green: "#a6e3a1",
-          yellow: "#f9e2af",
-          blue: "#89b4fa",
-          magenta: "#cba6f7",
-          cyan: "#89dceb",
-          white: "#bac2de",
-          brightBlack: "#585b70",
-          brightRed: "#f38ba8",
-          brightGreen: "#a6e3a1",
-          brightYellow: "#f9e2af",
-          brightBlue: "#89b4fa",
-          brightMagenta: "#cba6f7",
-          brightCyan: "#89dceb",
-          brightWhite: "#a6adc8",
-        },
+  const createXtermSession = useCallback((container: HTMLDivElement): TabSession => {
+    const term = new Terminal({
+      fontFamily: '"Cascadia Code", "Cascadia Mono", "Fira Code", "JetBrains Mono", monospace',
+      fontSize: 13,
+      lineHeight: 1.45,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      allowTransparency: true,
+      scrollback: 10000,
+      convertEol: false,
+      theme: {
+        background: "#0f111a",
+        foreground: "#cdd6f4",
+        cursor: "#cdd6f4",
+        selectionBackground: "#45475a",
+        black: "#45475a",
+        red: "#f38ba8",
+        green: "#a6e3a1",
+        yellow: "#f9e2af",
+        blue: "#89b4fa",
+        magenta: "#cba6f7",
+        cyan: "#89dceb",
+        white: "#bac2de",
+        brightBlack: "#585b70",
+        brightRed: "#f38ba8",
+        brightGreen: "#a6e3a1",
+        brightYellow: "#f9e2af",
+        brightBlue: "#89b4fa",
+        brightMagenta: "#cba6f7",
+        brightCyan: "#89dceb",
+        brightWhite: "#a6adc8",
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
+    term.open(container);
+    requestAnimationFrame(() => { try { fitAddon.fit(); } catch (_) { } });
+
+    return { terminal: term, fitAddon };
+  }, []);
+
+  /** Create backend PTY + xterm session for a tab. */
+  const spawnTerminalForTab = useCallback((tabId: string, cwd: string, container: HTMLDivElement) => {
+    const session = createXtermSession(container);
+    sessions.current.set(tabId, session);
+
+    // Route keystrokes → backend PTY (by terminalId)
+    session.terminal.onData((data) => {
+      const terminalId = terminalIds.current.get(tabId);
+      if (terminalId && socketRef.current?.connected) {
+        socketRef.current.emit("terminal-input", { terminalId, data });
+      }
+    });
+
+    // Route resize → backend PTY
+    session.terminal.onResize(({ cols, rows }) => {
+      const terminalId = terminalIds.current.get(tabId);
+      if (terminalId && socketRef.current?.connected) {
+        socketRef.current.emit("resize", { terminalId, cols, rows });
+      }
+    });
+
+    // Ask backend to spawn a real PTY in `cwd`
+    const emitCreate = () => {
+      if (!socketRef.current?.connected) {
+        // Retry once the socket connects
+        socketRef.current?.once("connect", () => emitCreate());
+        return;
+      }
+
+      // Register a resolver that will be called when backend confirms creation
+      pendingCreations.current.set(tabId, (terminalId: string) => {
+        terminalIds.current.set(tabId, terminalId);
+        // Now that we have the real terminalId, emit the initial resize
+        try {
+          session.fitAddon.fit();
+          socketRef.current?.emit("resize", {
+            terminalId,
+            cols: session.terminal.cols,
+            rows: session.terminal.rows,
+          });
+        } catch (_) { }
       });
 
-      const fitAddon = new FitAddon();
-      const webLinksAddon = new WebLinksAddon();
+      const folderName = cwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
+      socketRef.current.emit("create-terminal", { cwd, name: folderName });
+    };
 
-      term.loadAddon(fitAddon);
-      term.loadAddon(webLinksAddon);
-      term.open(container);
-
-      requestAnimationFrame(() => {
-        try { fitAddon.fit(); } catch (_) { }
-      });
-
-      const session: TabSession = {
-        terminal: term,
-        fitAddon,
-        socket: null,
-        inputBuffer: "",
-        history: [],
-        historyIndex: -1,
-      };
-
-      // ── Key / character input handling ──────────────────────────────────
-      term.onData((data: string) => {
-        const code = data.charCodeAt(0);
-
-        if (code === 13) {
-          // ↵ Enter — echo newline locally, send command to shell
-          const command = session.inputBuffer;
-          term.write("\r\n");
-
-          if (command.trim()) {
-            session.history.unshift(command);
-            if (session.history.length > 500) session.history.pop();
-          }
-          session.historyIndex = -1;
-          session.inputBuffer = "";
-
-          if (session.socket?.readyState === WebSocket.OPEN) {
-            session.socket.send(command);
-          } else {
-            term.write(
-              "\u001B[1;31m[Not connected]\u001B[0m Backend server is not running.\r\n"
-            );
-          }
-
-        } else if (code === 127) {
-          // ⌫ Backspace
-          if (session.inputBuffer.length > 0) {
-            session.inputBuffer = session.inputBuffer.slice(0, -1);
-            term.write("\b \b");
-          }
-
-        } else if (data === "\u001B[A") {
-          // ↑ Arrow — history prev
-          const next = Math.min(session.historyIndex + 1, session.history.length - 1);
-          if (session.history[next] !== undefined) {
-            // Erase current input
-            term.write("\b \b".repeat(session.inputBuffer.length));
-            session.inputBuffer = session.history[next];
-            session.historyIndex = next;
-            term.write(session.inputBuffer);
-          }
-
-        } else if (data === "\u001B[B") {
-          // ↓ Arrow — history next
-          const prev = session.historyIndex - 1;
-          term.write("\b \b".repeat(session.inputBuffer.length));
-          if (prev >= 0 && session.history[prev] !== undefined) {
-            session.inputBuffer = session.history[prev];
-            session.historyIndex = prev;
-          } else {
-            session.inputBuffer = "";
-            session.historyIndex = -1;
-          }
-          term.write(session.inputBuffer);
-
-        } else if (data === "\u001B[C" || data === "\u001B[D") {
-          // ← → Arrow — ignore (cursor movement not implemented)
-        } else if (data === "\u0003") {
-          // Ctrl+C — send interrupt signal
-          if (session.socket?.readyState === WebSocket.OPEN) {
-            session.socket.send("\u0003"); // will be sent to shell
-          }
-          term.write("^C\r\n");
-          session.inputBuffer = "";
-          session.historyIndex = -1;
-
-        } else if (code >= 32) {
-          // Printable character — echo locally + buffer
-          session.inputBuffer += data;
-          term.write(data);
-        }
-      });
-
-      sessions.current.set(tabId, session);
-      connectWebSocket(tabId, session, cwd);
-      return session;
-    },
-    [connectWebSocket, cwd]
-  );
+    emitCreate();
+    return session;
+  }, [createXtermSession]);
 
   const destroySession = useCallback((tabId: string) => {
+    const terminalId = terminalIds.current.get(tabId);
+    if (terminalId && socketRef.current?.connected) {
+      socketRef.current.emit("kill-terminal", { terminalId });
+    }
+    terminalIds.current.delete(tabId);
+    pendingCreations.current.delete(tabId);
     const session = sessions.current.get(tabId);
     if (session) {
-      session.socket?.close();
       session.terminal.dispose();
       sessions.current.delete(tabId);
     }
   }, []);
 
-  // ─── Tab management ─────────────────────────────────────────────────────
+  // ── Public API (imperative handle) ────────────────────────────────────────
 
-  const activeTabId = tabs.find((t) => t.isActive)?.id;
+  useImperativeHandle(ref, () => ({
+    openTerminalForWorkspace: (path: string) => {
+      if (!path) return;
+      const folderName = path.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
+      const newId = `terminal-${Date.now()}`;
+      const newTab: TerminalTab = {
+        id: newId,
+        terminalId: "",
+        name: folderName,
+        cwd: path,
+        isActive: true,
+      };
+      setTabs(prev => [...prev.map(t => ({ ...t, isActive: false })), newTab]);
+    },
+    executeCommand: (command: string) => {
+      const activeTabId = tabs.find(t => t.isActive)?.id;
+      if (!activeTabId) return;
+      const terminalId = terminalIds.current.get(activeTabId);
+      if (terminalId && socketRef.current?.connected) {
+        socketRef.current.emit("terminal-input", { terminalId, data: command + "\n" });
+      }
+    }
+  }), [tabs]);
+
+  // ── First terminal on mount (for initial project) ─────────────────────────
+
+  const initialBootRef = useRef(false);
+  useEffect(() => {
+    if (initialBootRef.current || !initialCwd || tabs.length > 0) return;
+    initialBootRef.current = true;
+    const folderName = initialCwd.split(/[/\\]/).filter(Boolean).pop() || "PowerShell";
+    const newId = `terminal-initial-${Date.now()}`;
+    setTabs([{ id: newId, terminalId: "", name: folderName, cwd: initialCwd, isActive: true }]);
+  }, [initialCwd, tabs.length]);
+
+  // ── Mount xterm when a new tab becomes active ─────────────────────────────
+
+  const activeTabId = tabs.find(t => t.isActive)?.id;
+
+  useEffect(() => {
+    if (!isVisible || !terminalContainerRef.current || !activeTabId) return;
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab) return;
+
+    const container = terminalContainerRef.current;
+
+    if (!sessions.current.has(activeTabId)) {
+      // Brand new tab — spawn PTY + xterm
+      spawnTerminalForTab(activeTabId, activeTab.cwd, container);
+    } else {
+      // Existing session — just re-fit
+      try { sessions.current.get(activeTabId)!.fitAddon.fit(); } catch (_) { }
+    }
+    sessions.current.get(activeTabId)?.terminal.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, activeTabId, height, tabs.length]);
+
+  useEffect(() => { sessions.current.forEach(s => { try { s.fitAddon.fit(); } catch (_) { } }); }, [height]);
+  useEffect(() => { return () => { sessions.current.forEach((_, id) => destroySession(id)); }; }, [destroySession]);
+
+  // ── Quick Commands ────────────────────────────────────────────────────────
+
+  const executeQuickCommand = async (commandName: string) => {
+    setShowQuickCommands(false);
+    const activeTab = tabs.find(t => t.isActive);
+    try {
+      await axios.post(`${BACKEND_API_URL}/commands/${commandName}`, {
+        cwd: activeTab?.cwd || "",
+      });
+    } catch {
+      // streaming output arrives via WebSocket
+    }
+  };
+
+  // ── Tab Management ────────────────────────────────────────────────────────
 
   const handleNewTab = () => {
+    const activeCwd = tabs.find(t => t.isActive)?.cwd || "";
+    const folderName = activeCwd.split(/[/\\]/).filter(Boolean).pop() || "PowerShell";
     const newId = `terminal-${Date.now()}`;
-    setTabs((prev) => [
-      ...prev.map((t) => ({ ...t, isActive: false })),
-      { id: newId, name: "PowerShell", isActive: true },
+    setTabs(prev => [
+      ...prev.map(t => ({ ...t, isActive: false })),
+      { id: newId, terminalId: "", name: folderName, cwd: activeCwd, isActive: true },
     ]);
   };
 
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     destroySession(tabId);
-    setTabs((prev) => {
-      const filtered = prev.filter((t) => t.id !== tabId);
-      if (filtered.length > 0 && prev.find((t) => t.id === tabId)?.isActive) {
-        filtered[filtered.length - 1].isActive = true;
+    setTabs(prev => {
+      const filtered = prev.filter(t => t.id !== tabId);
+      if (filtered.length > 0 && prev.find(t => t.id === tabId)?.isActive) {
+        filtered[filtered.length - 1] = { ...filtered[filtered.length - 1], isActive: true };
       }
       return filtered;
     });
   };
 
   const handleSelectTab = (tabId: string) => {
-    setTabs((prev) => prev.map((t) => ({ ...t, isActive: t.id === tabId })));
+    setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === tabId })));
     setTimeout(() => {
       const s = sessions.current.get(tabId);
-      if (s) {
-        try { s.fitAddon.fit(); } catch (_) { }
-        s.terminal.focus();
-      }
+      if (s) { try { s.fitAddon.fit(); } catch (_) { } s.terminal.focus(); }
     }, 30);
   };
 
@@ -262,7 +371,7 @@ export default function TerminalPanel({
     if (activeTabId) sessions.current.get(activeTabId)?.terminal.clear();
   };
 
-  // ─── Resize drag ─────────────────────────────────────────────────────────
+  // ── Resize Handle ─────────────────────────────────────────────────────────
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
@@ -286,64 +395,32 @@ export default function TerminalPanel({
     };
   }, [onHeightChange]);
 
-  // ─── xterm.js mount / tab switch ────────────────────────────────────────
-
-  useEffect(() => {
-    if (!isVisible || !terminalContainerRef.current || !activeTabId) return;
-
-    const container = terminalContainerRef.current;
-    let session = sessions.current.get(activeTabId);
-
-    if (!session) {
-      session = createSession(activeTabId, container);
-    } else {
-      try { session.fitAddon.fit(); } catch (_) { }
-    }
-    session.terminal.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, activeTabId, height]);
-
-  // Refit all on height change
-  useEffect(() => {
-    sessions.current.forEach((s) => {
-      try { s.fitAddon.fit(); } catch (_) { }
-    });
-  }, [height]);
-
-  // Cleanup all sessions on unmount
-  useEffect(() => {
-    return () => { sessions.current.forEach((_, id) => destroySession(id)); };
-  }, [destroySession]);
+  // ── Render ────────────────────────────────────────────────────────────────
 
   if (!isVisible) return null;
 
   return (
-    <div
-      className="bg-ide-bg border-t border-ide-border flex flex-col"
-      style={{ height: `${height}px` }}
-    >
+    <div className="bg-ide-bg border-t border-ide-border flex flex-col" style={{ height: `${height}px` }}>
       {/* Resize Handle */}
-      <div
-        className="h-1 bg-ide-border hover:bg-indigo-500 cursor-row-resize transition-colors flex-shrink-0"
-        onMouseDown={handleMouseDown}
-      />
+      <div className="h-1 bg-ide-border hover:bg-indigo-500 cursor-row-resize transition-colors flex-shrink-0" onMouseDown={handleMouseDown} />
 
-      {/* Header */}
+      {/* Tab Bar */}
       <div className="h-9 bg-ide-sidebar border-b border-ide-border flex items-center justify-between px-2 flex-shrink-0">
-        <div className="flex items-center gap-1">
-          {tabs.map((tab) => (
+        <div className="flex items-center gap-1 overflow-x-auto">
+          {tabs.map(tab => (
             <div
               key={tab.id}
               className={cn(
-                "h-7 flex items-center gap-2 px-3 rounded-t text-xs transition-colors cursor-pointer group",
+                "h-7 flex items-center gap-2 px-3 rounded-t text-xs transition-colors cursor-pointer group flex-shrink-0",
                 tab.isActive
                   ? "bg-ide-bg text-ide-text-primary"
                   : "text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
               )}
               onClick={() => handleSelectTab(tab.id)}
+              title={tab.cwd}
             >
-              <TerminalIcon className="w-3.5 h-3.5 text-blue-400" />
-              <span>{tab.name}</span>
+              <TerminalIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+              <span className="max-w-[120px] truncate">{tab.name}</span>
               {tabs.length > 1 && (
                 <button
                   onClick={(e) => handleCloseTab(tab.id, e)}
@@ -354,45 +431,60 @@ export default function TerminalPanel({
               )}
             </div>
           ))}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewTab}
-            className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
-            title="New Terminal Tab"
-          >
+          <Button variant="ghost" size="icon" onClick={handleNewTab} className="h-6 w-6 flex-shrink-0 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="New Terminal">
             <Plus className="w-3.5 h-3.5" />
           </Button>
         </div>
 
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClearTerminal}
-            className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
-            title="Clear Terminal"
-          >
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Quick Commands */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowQuickCommands(p => !p)}
+              className="h-6 px-2 text-xs text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover flex items-center gap-1"
+              title="Quick Commands"
+            >
+              <Play className="w-3 h-3 text-green-400" />
+              <span className="hidden sm:inline">Quick Commands</span>
+              <ChevronDown className="w-3 h-3" />
+            </Button>
+            {showQuickCommands && (
+              <div className="absolute right-0 top-full mt-1 w-52 bg-[#1a1d2e] border border-ide-border rounded-lg shadow-2xl z-50 overflow-hidden">
+                {AVAILABLE_QUICK_COMMANDS.length === 0 ? (
+                  <div className="px-3 py-2 text-[10px] text-ide-text-secondary italic bg-ide-sidebar">
+                    No quick commands available. Enable extensions in settings.
+                  </div>
+                ) : (
+                  AVAILABLE_QUICK_COMMANDS.map(qc => (
+                    <button
+                      key={qc.command + qc.label}
+                      onClick={() => executeQuickCommand(qc.command)}
+                      className="w-full text-left px-3 py-2 text-xs text-ide-text-secondary hover:bg-ide-hover hover:text-ide-text-primary transition-colors flex items-center gap-2"
+                    >
+                      {qc.icon}
+                      {qc.label}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <Button variant="ghost" size="icon" onClick={handleClearTerminal} className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Clear Terminal">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
-            title="Hide Terminal"
-          >
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Hide Terminal">
             <ChevronDown className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
 
       {/* xterm.js renders here */}
-      <div
-        ref={terminalContainerRef}
-        className="flex-1 min-h-0 overflow-hidden"
-        style={{ padding: "4px 4px 0 4px" }}
-      />
+      <div ref={terminalContainerRef} className="flex-1 min-h-0 overflow-hidden" style={{ padding: "4px 4px 0 4px" }} />
     </div>
   );
-}
+});
+
+export default TerminalPanel;

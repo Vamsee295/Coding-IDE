@@ -22,7 +22,7 @@ export const fsService = {
     /**
      * List contents of a directory (shallow)
      */
-    async listDirectory(path: string): Promise<FileSystemItem[]> {
+    async listDirectory(path: string): Promise<{ items: FileSystemItem[], truncated: boolean, totalCount?: number }> {
         const response = await axios.get(`${API_BASE_URL}/list`, { params: { path } });
         return response.data;
     },

@@ -13,6 +13,7 @@ export interface AppSettings {
     fontFamily: string;
     fontSize: number;
     wordWrap: boolean;
+    autoSave: boolean;
 
     // AI Assistant
     aiModel: string;
@@ -35,6 +36,7 @@ const defaultSettings: AppSettings = {
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     fontSize: 14,
     wordWrap: true,
+    autoSave: false,
     aiModel: 'qwen2.5-coder:7b', // Defaulting to the one in Navbar
     aiTemperature: 0.7,
     inlineSuggestions: true,

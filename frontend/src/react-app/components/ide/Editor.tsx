@@ -1,4 +1,4 @@
-import MonacoEditor, { OnMount } from "@monaco-editor/react";
+import MonacoEditor, { OnMount, BeforeMount } from "@monaco-editor/react";
 import { useRef, useEffect } from "react";
 import { X, Circle } from "lucide-react";
 import { EditorTab } from "@/react-app/types/ide";
@@ -44,6 +44,22 @@ const getLanguage = (filename: string): string => {
       return "python";
     case "java":
       return "java";
+    case "c":
+      return "c";
+    case "cpp":
+    case "cc":
+      return "cpp";
+    case "go":
+      return "go";
+    case "rust":
+    case "rs":
+      return "rust";
+    case "rb":
+      return "ruby";
+    case "php":
+      return "php";
+    case "sh":
+      return "shell";
     default:
       return "plaintext";
   }
@@ -58,6 +74,44 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
 
   const selectionDisposeRef = useRef<(() => void) | null>(null);
 
+  const handleBeforeMount: BeforeMount = (monaco) => {
+    // Configure TypeScript compiler options to work without node_modules
+    const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+    const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+
+    const compilerOptions = {
+      target: monaco.languages.typescript.ScriptTarget.ESNext,
+      module: monaco.languages.typescript.ModuleKind.ESNext,
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      jsxImportSource: "react",
+      allowJs: true,
+      allowSyntheticDefaultImports: true,
+      esModuleInterop: true,
+      strict: false,
+      noUnusedLocals: false,
+      noUnusedParameters: false,
+      experimentalDecorators: true,
+      lib: ["esnext", "dom", "dom.iterable"],
+    };
+
+    tsDefaults.setCompilerOptions(compilerOptions);
+    jsDefaults.setCompilerOptions(compilerOptions);
+
+    // Disable semantic validation (type errors) — Monaco doesn't have access
+    // to user's node_modules, so these would all be false positives
+    tsDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+      noSuggestionDiagnostics: true,
+    });
+    jsDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+      noSuggestionDiagnostics: true,
+    });
+  };
+
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
     selectionDisposeRef.current?.();
@@ -65,7 +119,7 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
       const path = activeTab.path ?? "";
       const name = activeTab.name;
       const language = activeTab.language || getLanguage(activeTab.name);
-      selectionDisposeRef.current = editor.onDidChangeCursorSelection(() => {
+      const disposable = editor.onDidChangeCursorSelection(() => {
         const sel = editor.getSelection();
         const model = editor.getModel();
         const selectedText = sel && model ? model.getValueInRange(sel) : "";
@@ -78,6 +132,7 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
           endLine: sel?.endLineNumber ?? 0,
         });
       });
+      selectionDisposeRef.current = () => disposable.dispose();
     }
   };
 
@@ -158,10 +213,12 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
           <MonacoEditor
             height="100%"
             language={getLanguage(activeTab.name)}
+            path={activeTab.path || activeTab.name}
             value={activeTab.content}
             theme={settings.theme === 'snowy-studio' ? "vs-light" : "vs-dark"}
             onChange={(value) => onContentChange(activeTab.id, value || "")}
             onMount={handleEditorDidMount}
+            beforeMount={handleBeforeMount}
             options={{
               fontSize: settings.fontSize,
               fontFamily: settings.fontFamily,

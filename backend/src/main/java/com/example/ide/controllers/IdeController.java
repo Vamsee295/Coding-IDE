@@ -33,6 +33,9 @@ public class IdeController {
     @PostMapping
     public Project createProject(@RequestBody Map<String, String> payload) {
         Project project = new Project(payload.get("name"), payload.get("description"));
+        if (payload.containsKey("rootPath")) {
+            project.setRootPath(payload.get("rootPath"));
+        }
         return projectRepository.save(project);
     }
 

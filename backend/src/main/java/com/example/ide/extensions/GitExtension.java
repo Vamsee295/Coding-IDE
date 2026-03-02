@@ -57,9 +57,9 @@ public class GitExtension implements IDEExtension {
         return new IDECommand() {
             @Override public String getName()  { return name; }
             @Override public String getLabel() { return label; }
-            @Override public Object execute(Map<String, Object> payload) {
+            @Override public Object execute(java.util.Map<String, Object> payload) {
                 log.info("[GitExtension] Running: {}", gitCmd);
-                // Future: run via ProcessBuilder and return output
+                // Future: run via ProcessBuilder and route output to terminal WebSocket
                 return null;
             }
         };

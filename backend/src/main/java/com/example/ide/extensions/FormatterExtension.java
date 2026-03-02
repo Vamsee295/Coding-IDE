@@ -50,10 +50,10 @@ public class FormatterExtension implements IDEExtension {
         commandRegistry.registerCommand(new IDECommand() {
             @Override public String getName()  { return "formatter.formatDocument"; }
             @Override public String getLabel() { return "Format Document"; }
-            @Override public Object execute(Map<String, Object> payload) {
-                String content = payload != null && payload.get("content") != null ? payload.get("content").toString() : "";
-                String lang = payload != null && payload.get("language") != null ? payload.get("language").toString() : "plaintext";
-                return formatContent(content, lang);
+            @Override public Object execute(java.util.Map<String, Object> payload) {
+                log.info("[FormatterExtension] Formatting document...");
+                // Future: spawn `npx prettier --write <file>` via ProcessBuilder
+                return null;
             }
         });
         log.info("[FormatterExtension] Activated — format on save + command registered");

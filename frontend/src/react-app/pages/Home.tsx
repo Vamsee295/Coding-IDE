@@ -1,24 +1,45 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Navbar from "@/react-app/components/ide/Navbar";
 import Sidebar from "@/react-app/components/ide/Sidebar";
 import Editor from "@/react-app/components/ide/Editor";
 import ChatPanel from "@/react-app/components/ide/ChatPanel";
-import TerminalPanel from "@/react-app/components/ide/TerminalPanel";
+import TerminalPanel, { TerminalPanelHandle } from "@/react-app/components/ide/TerminalPanel";
 import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog";
 import SettingsView from "@/react-app/components/ide/SettingsView";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
-import { FileItem, ChatMessage, EditorTab } from "@/react-app/types/ide";
+import { FileItem, ChatMessage, EditorTab, AIAction } from "@/react-app/types/ide";
 import { getProjects, getProjectFiles, createFile, updateFile, deleteFile } from "@/services/api";
 import { openLocalDirectory, buildTreeFromFiles } from "@/utils/fileSystemHelper";
 import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
 import { commandService } from "@/services/commandService";
-import { useEffect, useRef } from "react";
+import { openWorkspace as openBackendWorkspace } from "@/services/workspaceService";
+import { aiOrchestrator } from "@/services/aiOrchestrator";
 
 const getLanguage = (filename: string): string => {
   const ext = filename.split(".").pop()?.toLowerCase();
-  const map: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", py: "python", java: "java", json: "json", md: "markdown", html: "html", css: "css" };
+  const map: Record<string, string> = {
+    ts: "typescript",
+    tsx: "typescript",
+    js: "javascript",
+    jsx: "javascript",
+    py: "python",
+    java: "java",
+    json: "json",
+    md: "markdown",
+    html: "html",
+    css: "css",
+    c: "c",
+    cpp: "cpp",
+    cc: "cpp",
+    go: "go",
+    rs: "rust",
+    rust: "rust",
+    rb: "ruby",
+    php: "php",
+    sh: "shell"
+  };
   return map[ext ?? ""] ?? "plaintext";
 };
 // Dummy data removed, using dynamic loading from API
@@ -61,7 +82,12 @@ export default function HomePage() {
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
-  const [selectedModel, setSelectedModel] = useState("qwen2.5-coder:7b");
+  const [selectedModel, setSelectedModelState] = useState(settings.aiModel || "qwen2.5-coder:7b");
+
+  const setSelectedModel = (model: string) => {
+    setSelectedModelState(model);
+    updateSettings({ aiModel: model });
+  };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -85,12 +111,29 @@ export default function HomePage() {
     mode: "new-file",
   });
   const [terminalVisible, setTerminalVisible] = useState(true);
+  const [aiChatVisible, setAiChatVisible] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(250);
+  const [activeProjectPath, setActiveProjectPath] = useState<string | undefined>(undefined);
+  // Tracks the very first project path — passed as initialCwd to TerminalPanel once
+  const [initialTerminalCwd, setInitialTerminalCwd] = useState<string | undefined>(undefined);
+
+
+  // Ref to the terminal panel — used to imperatively cd when a project is opened
+  const terminalRef = useRef<TerminalPanelHandle>(null);
 
   // Load Projects and Files from Backend
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // 1. Try to restore last active workspace from localStorage
+        const lastWorkspace = localStorage.getItem("ide-last-active-workspace");
+        if (lastWorkspace) {
+          console.log("[Home] Restoring last active workspace:", lastWorkspace);
+          await openWorkspacePath(lastWorkspace);
+          return; // Skip project list loading if we restored a workspace
+        }
+
+        // 2. Fallback to Project List from DB
         const projects = await getProjects();
         if (projects.length > 0) {
           const defaultProject = projects[0];
@@ -98,10 +141,12 @@ export default function HomePage() {
 
           const rawFiles = await getProjectFiles(defaultProject.id);
           setFiles(buildFileTree(rawFiles));
-        } else {
-          // If no projects, maybe create a default one (Optional)
-          // const newProject = await createProject("Default Project");
-          // setActiveProjectId(newProject.id);
+
+          if (defaultProject.rootPath) {
+            setActiveProjectPath(defaultProject.rootPath);
+            setInitialTerminalCwd(defaultProject.rootPath);
+            openBackendWorkspace(defaultProject.rootPath).catch(() => { });
+          }
         }
       } catch (error) {
         console.error("Failed to load backend data", error);
@@ -109,6 +154,22 @@ export default function HomePage() {
       }
     };
     fetchData();
+  }, []);
+
+  const getProjectContext = useCallback((items: FileItem[], depth = 0, currentCount = { val: 0 }): string => {
+    if (depth > 3 || currentCount.val > 100) return "";
+    let context = "";
+    for (const item of items) {
+      if (currentCount.val > 100) break;
+      currentCount.val++;
+
+      const indent = "  ".repeat(depth);
+      context += `${indent}${item.type === "folder" ? "📁" : "📄"} ${item.name}${item.path ? ` (${item.path})` : ""}\n`;
+      if (item.children) {
+        context += getProjectContext(item.children, depth + 1, currentCount);
+      }
+    }
+    return context;
   }, []);
 
   const findFileContent = (files: FileItem[], fileId: string): string | undefined => {
@@ -189,7 +250,7 @@ export default function HomePage() {
     );
   }, []);
 
-  const handleSendMessage = useCallback(async (content: string) => {
+  const handleSendMessage = useCallback(async (content: string, taggedFiles: FileItem[] = []) => {
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
@@ -199,45 +260,88 @@ export default function HomePage() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
+    const activeTab = tabs.find(t => t.isActive);
+    let contextBlock = "";
+
+    // 0. Add Project Tree Context
+    contextBlock += "Project Structure:\n" + getProjectContext(files) + "\n\n";
+
+    // 1. Add Active File Context if enabled
+    if (settings.contextualAwareness && activeTab) {
+      contextBlock += `Active File: "${activeTab.name}"\n\`\`\`${getLanguage(activeTab.name)}\n${activeTab.content}\n\`\`\`\n\n`;
+    }
+
+    // 2. Add Tagged Files Context
+    if (taggedFiles.length > 0) {
+      contextBlock += "Tagged Files Context:\n";
+      for (const file of taggedFiles) {
+        if (file.type === "file") {
+          let fileContent = file.content;
+          if (!fileContent && file.path) {
+            try {
+              fileContent = await fsService.readFile(file.path);
+            } catch (e) {
+              fileContent = "[Error reading file content]";
+            }
+          }
+          contextBlock += `File: "${file.name}"\n\`\`\`${getLanguage(file.name)}\n${fileContent || "[Empty]"}\n\`\`\`\n\n`;
+        } else {
+          contextBlock += `Folder: "${file.name}" (Tagged for context)\n\n`;
+        }
+      }
+    }
+
+    // 3. Add AI Action Protocol System Prompt
+    const systemPrompt = aiOrchestrator.getSystemPrompt();
+
+    const finalPrompt = `${systemPrompt}\n\nContext Information:\n${contextBlock}\nUser Question: ${content}`;
+
     try {
-      const response = await fetch(`${settings.ollamaEndpoint}/api/generate`, {
+      const response = await fetch(`http://localhost:8081/api/ai/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           model: selectedModel,
-          prompt: content,
-          stream: false // Using non-streaming for simplicity
+          prompt: finalPrompt,
+          ollamaEndpoint: settings.ollamaEndpoint
         })
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP Error Status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Server Error ${response.status}: ${(errorData as any).error || response.statusText}`);
       }
 
       const data = await response.json();
+      const rawResponse = data.response || "";
+
+      // Parse Actions
+      const actions = aiOrchestrator.parseActions(rawResponse);
+      const cleanContent = aiOrchestrator.stripActions(rawResponse);
 
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.response || "No response received.",
+        content: cleanContent || "I've processed your request.",
         timestamp: new Date(),
+        actions: actions.length > 0 ? actions : undefined,
       };
       setMessages((prev) => [...prev, aiResponse]);
     } catch (error: any) {
-      console.error("Local Ollama Error:", error);
+      console.error("AI Error:", error);
       const aiResponseError: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `**Connection Error**: Failed to reach your local Ollama instance at \`${settings.ollamaEndpoint}\`.\n\nMake sure Ollama is running, and you've set \`OLLAMA_ORIGINS="*"\` to allow browser access.\n\nDetails: ${error.message}`,
+        content: `**AI Error**: ${error.message}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiResponseError]);
     } finally {
       setIsLoading(false);
     }
-  }, [settings.ollamaEndpoint, selectedModel]);
+  }, [settings.ollamaEndpoint, selectedModel, tabs, settings.contextualAwareness]);
 
   const handleActionClick = useCallback((action: "explain" | "fix" | "optimize") => {
     const activeTab = tabs.find((t) => t.isActive);
@@ -255,7 +359,7 @@ export default function HomePage() {
 
 
   // File operation helpers
-  const findAndUpdateFile = (
+  const findAndUpdateFile = useCallback((
     items: FileItem[],
     fileId: string,
     updateFn: (item: FileItem) => FileItem | null
@@ -271,9 +375,9 @@ export default function HomePage() {
         return item;
       })
       .filter((item): item is FileItem => item !== null);
-  };
+  }, []);
 
-  const findParentAndAdd = (
+  const findParentAndAdd = useCallback((
     items: FileItem[],
     parentId: string,
     newItem: FileItem
@@ -293,7 +397,7 @@ export default function HomePage() {
       }
       return item;
     });
-  };
+  }, []);
 
   // File operation handlers
   const handleNewFile = useCallback((parentId: string) => {
@@ -317,9 +421,6 @@ export default function HomePage() {
 
     try {
       const duplicateName = item.name.replace(/(\.[^.]+)$/, " copy$1");
-
-      // Need to find parent to assign correct parent ID for backend. For now default to root if at top
-      // As a simplification, we pass "root". A robust approach searches the tree for item's parent id.
       const duplicatedDb = await createFile(activeProjectId, duplicateName, "file", "root", item.content || "");
 
       const newLocalItem: FileItem = {
@@ -397,7 +498,6 @@ export default function HomePage() {
             if (item) {
               await deleteFile(item.id);
               setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
-              // Close tab if it's open
               setTabs((prev) => prev.filter((t) => t.id !== item.id));
               if (activeFileId === item.id) {
                 setActiveFileId(null);
@@ -410,15 +510,14 @@ export default function HomePage() {
         console.error("Failed to execute file operation on backend:", error);
       }
     },
-    [dialogState, activeFileId, activeProjectId, handleFileSelect]
+    [dialogState, activeFileId, activeProjectId, handleFileSelect, findParentAndAdd, findAndUpdateFile]
   );
 
   const handleFolderExpand = useCallback(async (item: FileItem) => {
-    // Only fetch if it's a server-side folder and has no children yet
     if (item.path && (!item.children || item.children.length === 0)) {
       try {
-        const children = await fsService.listDirectory(item.path);
-        const childItems: FileItem[] = children.map(c => ({
+        const { items, truncated } = await fsService.listDirectory(item.path);
+        const childItems: FileItem[] = items.map(c => ({
           id: `fs-${c.path}`,
           name: c.name,
           type: c.type,
@@ -426,12 +525,12 @@ export default function HomePage() {
           children: c.type === 'folder' ? [] : undefined
         }));
 
-        setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, children: childItems })));
+        setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, children: childItems, truncated })));
       } catch (e) {
         console.error("Failed to expand folder", e);
       }
     }
-  }, []);
+  }, [findAndUpdateFile]);
 
   const handleSave = useCallback(async () => {
     const activeTab = tabs.find(t => t.isActive);
@@ -445,13 +544,11 @@ export default function HomePage() {
         language: getLanguage(activeTab.name),
         content: activeTab.content,
       });
-      contentToSave = res.content ?? activeTab.content;
+      contentToSave = res.content || activeTab.content;
       if (contentToSave !== activeTab.content) {
         setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, content: contentToSave } : t));
       }
-    } catch (_) {
-      // Backend down or event failed — save with current content
-    }
+    } catch (_) { }
 
     if (activeTab.path) {
       try {
@@ -459,33 +556,87 @@ export default function HomePage() {
         setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, isDirty: false } : t));
       } catch (e) {
         console.error("Failed to save file to server", e);
-        alert("Failed to save file.");
       }
     } else if (activeProjectId) {
       try {
         await updateFile(activeTab.id, { content: contentToSave });
         setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, isDirty: false } : t));
-      } catch (e) {
-        console.error("Failed to save file to backend", e);
-      }
+      } catch (e) { }
     }
   }, [tabs, activeProjectId]);
 
   const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleSelectionChange = useCallback((payload: { path?: string; name?: string; selectedText?: string; language?: string; startLine?: number; endLine?: number }) => {
+  const handleSelectionChange = useCallback((payload: any) => {
     if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
     selectionDebounceRef.current = setTimeout(() => {
-      eventService.selectionChange(payload).catch(() => {});
+      eventService.selectionChange(payload).catch(() => { });
       selectionDebounceRef.current = null;
     }, 300);
   }, []);
 
-  // Determine the root path for the terminal
-  const rootPath = files.length > 0 && files[0].path ? files[0].path : undefined;
+  const handleApplyAction = useCallback(async (action: AIAction) => {
+    switch (action.type) {
+      case "run_command":
+        if (action.command && terminalRef.current) {
+          setTerminalVisible(true);
+          terminalRef.current.executeCommand(action.command);
+        }
+        break;
+      case "write_file":
+        if (action.path && action.content) {
+          setFiles(prev => findAndUpdateFile(prev, `fs-${action.path}`, (f) => ({ ...f, content: action.content })));
+          setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: action.content!, isDirty: true } : t));
+          try {
+            await fsService.writeFile(action.path, action.content);
+          } catch (e) {
+            console.error("Failed to apply file write", e);
+          }
+        }
+        break;
+      case "create_file":
+        if (action.path && action.content) {
+          try {
+            await fsService.writeFile(action.path, action.content);
+            const fileName = action.path.split(/[/\\]/).pop() || "new_file";
+            const newFileItem: FileItem = {
+              id: `fs-${action.path}`,
+              name: fileName,
+              type: "file",
+              path: action.path,
+              content: action.content
+            };
+            setFiles(prev => [...prev, newFileItem]);
+          } catch (e) {
+            console.error("Failed to create file", e);
+          }
+        }
+        break;
+    }
+  }, [terminalRef, setTerminalVisible, findAndUpdateFile]);
+
+  // Track Recent Workspaces & Persist Last Active
+  useEffect(() => {
+    if (activeProjectPath) {
+      try {
+        // Save as last active for restoration on reload
+        localStorage.setItem("ide-last-active-workspace", activeProjectPath);
+
+        const historyStr = localStorage.getItem("ide-recent-workspaces");
+        let history: string[] = historyStr ? JSON.parse(historyStr) : [];
+        // Remove if it exists and push to front
+        history = history.filter(p => p !== activeProjectPath);
+        history.unshift(activeProjectPath);
+        // Keep only top 10
+        if (history.length > 10) history = history.slice(0, 10);
+        localStorage.setItem("ide-recent-workspaces", JSON.stringify(history));
+      } catch (e) { }
+    }
+  }, [activeProjectPath]);
 
   // --- IDE Command Listeners ---
   useIdeCommandListener("view.explorer", () => setSidebarCollapsed((prev) => !prev));
   useIdeCommandListener("view.terminal", () => setTerminalVisible((prev) => !prev));
+  useIdeCommandListener("view.toggleAiChat", () => setAiChatVisible((prev) => !prev));
   useIdeCommandListener("terminal.newTerminal", () => setTerminalVisible(true));
   useIdeCommandListener("file.newFile", () => handleNewFile("root"));
   useIdeCommandListener("file.newTextFile", () => handleNewFile("root"));
@@ -493,11 +644,27 @@ export default function HomePage() {
     try {
       if ('showDirectoryPicker' in window) {
         const localFiles = await openLocalDirectory();
-        if (localFiles) {
+        if (localFiles && localFiles.length > 0) {
           setFiles(localFiles);
-          setActiveProjectId(null); // Clear active project since we're local now
-          setTabs([]); // Clear open tabs for safety
+          setActiveProjectId(null);
+          setTabs([]);
           setActiveFileId(null);
+          // Derive the root path from the first file's path if available
+          const rootPath = localFiles[0]?.path
+            ? localFiles[0].path.split(/[\/\\]/).slice(0, -1).join("\\") || localFiles[0].path
+            : undefined;
+          if (rootPath) {
+            setActiveProjectPath(rootPath);
+            // Only set initialTerminalCwd once (for the very first terminal)
+            setInitialTerminalCwd(prev => prev ?? rootPath);
+            openBackendWorkspace(rootPath).catch(() => { });
+            // Open a NEW terminal tab for this workspace (only if not the very first boot)
+            if (initialTerminalCwd) {
+              terminalRef.current?.openTerminalForWorkspace(rootPath);
+            }
+            setTerminalVisible(true);
+          }
+
         }
       } else {
         throw new Error("API not supported natively");
@@ -509,10 +676,7 @@ export default function HomePage() {
     }
   });
 
-  useIdeCommandListener("file.openLocalPath", async () => {
-    const path = prompt("Enter the absolute path of the project folder:", "X:\\Project-Buildings\\twitter-sentiment-analysis");
-    if (!path) return;
-
+  const openWorkspacePath = async (path: string) => {
     try {
       const info = await fsService.checkExists(path);
       if (info.exists && info.isDirectory) {
@@ -526,11 +690,58 @@ export default function HomePage() {
         setActiveProjectId(null);
         setTabs([]);
         setActiveFileId(null);
+        setActiveProjectPath(path);
+        setInitialTerminalCwd(prev => prev ?? path);
+        // Register on backend so terminal + project detector know the workspace
+        openBackendWorkspace(path).catch(() => { });
+        // Open a NEW terminal tab for this workspace (only if not the very first boot)
+        if (initialTerminalCwd) {
+          terminalRef.current?.openTerminalForWorkspace(path);
+        }
+        setTerminalVisible(true);
+
       } else {
         alert("Invalid directory path.");
       }
     } catch (e) {
       console.error("Failed to open local path", e);
+      alert("Error connecting to backend file system service.");
+    }
+  };
+
+  useIdeCommandListener("file.openLocalPath", async () => {
+    const path = prompt("Enter the absolute path of the project folder:", "X:\\Project-Buildings\\twitter-sentiment-analysis");
+    if (!path) return;
+    await openWorkspacePath(path);
+  });
+
+  useIdeCommandListener("file.openRecent", async (path: string) => {
+    if (!path) return;
+    await openWorkspacePath(path);
+  });
+
+  useIdeCommandListener("file.addFolderToWorkspace", async () => {
+    const path = prompt("Enter the absolute path of the folder to add to workspace:");
+    if (!path) return;
+
+    try {
+      const info = await fsService.checkExists(path);
+      if (info.exists && info.isDirectory) {
+        setFiles(prev => [
+          ...prev,
+          {
+            id: `root-${Date.now()}`,
+            name: info.name,
+            type: "folder",
+            path: path,
+            children: [] // Will lazy load
+          }
+        ]);
+      } else {
+        alert("Invalid directory path.");
+      }
+    } catch (e) {
+      console.error("Failed to add folder to workspace", e);
       alert("Error connecting to backend file system service.");
     }
   });
@@ -592,6 +803,55 @@ export default function HomePage() {
       alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
     }
   });
+  useIdeCommandListener("file.saveAll", async () => {
+    const dirtyTabs = tabs.filter(t => t.isDirty);
+    for (const tab of dirtyTabs) {
+      if (tab.path) {
+        try {
+          await fsService.writeFile(tab.path, tab.content);
+          setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, isDirty: false } : t));
+        } catch (e) {
+          console.error("Failed to save file", e);
+        }
+      }
+    }
+  });
+
+  useIdeCommandListener("file.autoSave", () => {
+    updateSettings({ autoSave: !settings.autoSave });
+  });
+
+  // Auto Save Implementation
+  useEffect(() => {
+    if (!settings.autoSave) return;
+    const interval = setInterval(() => {
+      const dirtyTabs = tabs.filter(t => t.isDirty);
+      dirtyTabs.forEach(async (tab) => {
+        if (tab.path) {
+          try {
+            await eventService.fileSave({
+              path: tab.path,
+              name: tab.name,
+              language: getLanguage(tab.name),
+              content: tab.content,
+            });
+            await fsService.writeFile(tab.path, tab.content);
+            setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, isDirty: false } : t));
+          } catch (e) {
+            console.error("Auto-save failed for", tab.name, e);
+          }
+        } else if (activeProjectId) {
+          try {
+            await updateFile(tab.id, { content: tab.content });
+            setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, isDirty: false } : t));
+          } catch (e) { }
+        }
+      });
+    }, 3000); // Check every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [settings.autoSave, tabs, activeProjectId]);
+
   useIdeCommandListener("file.exit", () => {
     if (confirm("Are you sure you want to exit the IDE?")) {
       window.close();
@@ -639,20 +899,27 @@ export default function HomePage() {
             onContentChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
           />
-          <ChatPanel
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            onActionClick={handleActionClick}
-            isLoading={isLoading}
-          />
+          {aiChatVisible && (
+            <ChatPanel
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              onActionClick={handleActionClick}
+              onApplyAction={handleApplyAction}
+              isLoading={isLoading}
+              selectedModel={selectedModel}
+              files={files}
+            />
+          )}
         </div>
         <TerminalPanel
+          ref={terminalRef}
           isVisible={terminalVisible}
           onClose={() => setTerminalVisible(false)}
           height={terminalHeight}
           onHeightChange={setTerminalHeight}
-          cwd={rootPath}
+          initialCwd={initialTerminalCwd}
         />
+
       </div>
       <FileOperationDialog
         open={dialogState.open}

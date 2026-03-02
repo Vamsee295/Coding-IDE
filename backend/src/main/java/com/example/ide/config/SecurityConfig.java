@@ -15,8 +15,8 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                // Allow WebSocket terminal and all API requests (dev mode)
-                .requestMatchers("/terminal", "/terminal/**", "/api/**", "/events/**", "/commands/**").permitAll()
+                // WebSocket handshake path is under context-path: /api/terminal
+                .requestMatchers("/api/terminal", "/terminal", "/terminal/**", "/api/**", "/events/**", "/commands/**").permitAll()
                 .anyRequest().permitAll()
             )
             .headers(headers -> headers

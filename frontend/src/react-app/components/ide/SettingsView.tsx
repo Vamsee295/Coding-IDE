@@ -290,8 +290,10 @@ export default function SettingsView() {
                                                 <SelectContent>
                                                     <SelectItem value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</SelectItem>
                                                     <SelectItem value="qwen2.5-coder:14b">Qwen 2.5 Coder 14B</SelectItem>
+                                                    <SelectItem value="llama3:8b">Llama 3 8B</SelectItem>
                                                     <SelectItem value="codellama:7b">Code Llama 7B</SelectItem>
                                                     <SelectItem value="deepseek-coder:6.7b">DeepSeek Coder 6.7B</SelectItem>
+                                                    <SelectItem value="mistral:7b">Mistral 7B</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                             <p className="text-xs text-ide-text-secondary mt-2">

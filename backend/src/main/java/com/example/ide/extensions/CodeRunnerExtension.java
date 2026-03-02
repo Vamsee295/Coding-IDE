@@ -46,15 +46,17 @@ public class CodeRunnerExtension implements IDEExtension {
                 return runFileFromPayload(payload);
             }
         };
-        IDECommand runActive = new IDECommand() {
+        commandRegistry.registerCommand(runFile);
+        commandRegistry.registerCommand(new IDECommand() {
             @Override public String getName()  { return "runner.runActiveFile"; }
             @Override public String getLabel() { return "Run: Execute Current File"; }
-            @Override public Object execute(Map<String, Object> payload) {
+            @Override public Object execute(java.util.Map<String, Object> payload) {
+                log.info("[CodeRunnerExtension] Running active file...");
+                // Future: inspect file extension -> spawn node/java/python ProcessBuilder
+                // and stream stdout/stderr back through WebSocket terminal
                 return runFileFromPayload(payload);
             }
-        };
-        commandRegistry.registerCommand(runFile);
-        commandRegistry.registerCommand(runActive);
+        });
         log.info("[CodeRunnerExtension] Activated — runFile + runner.runActiveFile registered");
     }
 
@@ -95,7 +97,11 @@ public class CodeRunnerExtension implements IDEExtension {
                 case "js": case "mjs": case "cjs": lang = "javascript"; break;
                 case "ts": lang = "typescript"; break;
                 case "py": lang = "python"; break;
-                case "java": lang = "java"; break;
+            case "java": lang = "java"; break;
+                case "c": lang = "c"; break;
+                case "cpp": case "cc": lang = "cpp"; break;
+                case "go": lang = "go"; break;
+                case "rust": case "rs": lang = "rust"; break;
                 default: lang = "plaintext";
             }
         }
@@ -109,6 +115,8 @@ public class CodeRunnerExtension implements IDEExtension {
             case "javascript": case "typescript": ext = "js"; break;
             case "python": ext = "py"; break;
             case "java": ext = "java"; break;
+            case "c": ext = "c"; break;
+            case "cpp": ext = "cpp"; break;
             default: ext = "txt";
         }
         java.nio.file.Path temp = Files.createTempFile("ide-run", "." + ext);
@@ -131,6 +139,35 @@ public class CodeRunnerExtension implements IDEExtension {
             case "python":
                 pb = new ProcessBuilder("python", pathOrFile);
                 break;
+            case "go":
+                pb = new ProcessBuilder("go", "run", pathOrFile);
+                break;
+            case "c": {
+                java.nio.file.Path dir = java.nio.file.Paths.get(pathOrFile).getParent();
+                String exeName = pathOrFile + ".exe";
+                ProcessBuilder compile = new ProcessBuilder("gcc", pathOrFile, "-o", exeName)
+                        .directory(dir != null ? dir.toFile() : new File("."));
+                Process p = compile.start();
+                String compileOut = readStream(p.getInputStream()) + readStream(p.getErrorStream());
+                p.waitFor(RUN_TIMEOUT_SEC, TimeUnit.SECONDS);
+                if (p.exitValue() != 0) return "[Compile error]\n" + compileOut;
+
+                pb = new ProcessBuilder(exeName).directory(dir != null ? dir.toFile() : new File("."));
+                break;
+            }
+            case "cpp": {
+                java.nio.file.Path dir = java.nio.file.Paths.get(pathOrFile).getParent();
+                String exeName = pathOrFile + ".exe";
+                ProcessBuilder compile = new ProcessBuilder("g++", pathOrFile, "-o", exeName)
+                        .directory(dir != null ? dir.toFile() : new File("."));
+                Process p = compile.start();
+                String compileOut = readStream(p.getInputStream()) + readStream(p.getErrorStream());
+                p.waitFor(RUN_TIMEOUT_SEC, TimeUnit.SECONDS);
+                if (p.exitValue() != 0) return "[Compile error]\n" + compileOut;
+
+                pb = new ProcessBuilder(exeName).directory(dir != null ? dir.toFile() : new File("."));
+                break;
+            }
             case "java":
                 // Compile then run (simplified: single-file run with same name)
                 java.nio.file.Path dir = java.nio.file.Paths.get(pathOrFile).getParent();

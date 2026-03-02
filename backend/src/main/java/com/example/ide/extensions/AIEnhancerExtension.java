@@ -50,21 +50,18 @@ public class AIEnhancerExtension implements IDEExtension {
         commandRegistry.registerCommand(new IDECommand() {
             @Override public String getName()  { return "ai.enhanceSelection"; }
             @Override public String getLabel() { return "AI: Enhance Code"; }
-            @Override public Object execute(Map<String, Object> payload) {
-                String text = selectionOrPayload(payload, "selectedText");
-                if (text.isEmpty()) return "[AI] No selection. Select code first.";
-                log.info("[AIEnhancerExtension] Enhance selection ({} chars) — Ollama integration ready", text.length());
-                return "[AI Enhance] Selection received. Wire Ollama endpoint for live suggestions.";
+            @Override public Object execute(java.util.Map<String, Object> payload) {
+                log.info("[AIEnhancerExtension] Enhancing selection via Ollama...");
+                // Future: call OllamaService with selection context
+                return null;
             }
         });
         commandRegistry.registerCommand(new IDECommand() {
             @Override public String getName()  { return "ai.explainCode"; }
             @Override public String getLabel() { return "AI: Explain Code"; }
-            @Override public Object execute(Map<String, Object> payload) {
-                String text = selectionOrPayload(payload, "selectedText");
-                if (text.isEmpty()) return "[AI] No selection. Select code first.";
-                log.info("[AIEnhancerExtension] Explain selection ({} chars)", text.length());
-                return "[AI Explain] Selection received. Wire Ollama for explanation.";
+            @Override public Object execute(java.util.Map<String, Object> payload) {
+                log.info("[AIEnhancerExtension] Explaining selection via Ollama...");
+                return null;
             }
         });
         log.info("[AIEnhancerExtension] Activated — selection hooks + AI commands registered");

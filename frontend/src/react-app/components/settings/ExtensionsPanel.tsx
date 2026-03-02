@@ -175,28 +175,21 @@ function ExtensionCard({
 
 // ─── Main Panel ─────────────────────────────────────────────────────────────
 
+import { useExtensions } from "@/react-app/contexts/ExtensionContext";
+
 export default function ExtensionsPanel() {
-    const [extensions, setExtensions] = useState<Extension[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { extensions, loading, refreshExtensions } = useExtensions();
     const [error, setError] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-    const loadExtensions = useCallback(async () => {
-        setLoading(true);
-        setError(null);
+    // Initial load happens in ExtensionProvider, but we can refresh here if needed
+    const handleRefresh = useCallback(async () => {
         try {
-            const data = await extensionService.getAll();
-            setExtensions(data);
+            await refreshExtensions();
         } catch {
             setError("Failed to load extensions. Make sure the backend is running on port 8081.");
-        } finally {
-            setLoading(false);
         }
-    }, []);
-
-    useEffect(() => {
-        loadExtensions();
-    }, [loadExtensions]);
+    }, [refreshExtensions]);
 
     // Auto-dismiss toast after 3s
     useEffect(() => {
@@ -207,22 +200,25 @@ export default function ExtensionsPanel() {
 
     const handleToggle = async (id: string, enable: boolean) => {
         try {
-            const updated = enable
+            // Call backend — this triggers full lifecycle: activate/deactivate + EventBus
+            enable
                 ? await extensionService.enable(id)
                 : await extensionService.disable(id);
 
-            setExtensions((prev) =>
-                prev.map((e) => (e.id === updated.id ? updated : e))
-            );
+            // Trigger global refresh so context-dependent components (Chat, Terminal) update
+            await refreshExtensions();
 
+            const ext = extensions.find((e) => e.id === id);
             setToast({
-                message: `${updated.name} ${enable ? "enabled" : "disabled"}`,
+                message: `${ext?.name ?? id} ${enable ? "enabled ✔" : "disabled"}`,
                 type: "success",
             });
         } catch {
-            setToast({ message: "Failed to update extension", type: "error" });
+            setToast({ message: "Failed to update extension — backend may be offline", type: "error" });
+            refreshExtensions().catch(() => { });
         }
     };
+
 
     // Group by category
     const grouped = extensions.reduce<Record<string, Extension[]>>((acc, ext) => {
@@ -266,7 +262,7 @@ export default function ExtensionsPanel() {
                     </p>
                 </div>
                 <button
-                    onClick={loadExtensions}
+                    onClick={handleRefresh}
                     disabled={loading}
                     className="flex items-center gap-1.5 text-xs text-ide-text-secondary hover:text-ide-text-primary transition-colors px-2 py-1.5 rounded hover:bg-ide-hover"
                 >
@@ -299,7 +295,7 @@ export default function ExtensionsPanel() {
                             <p className="text-xs text-ide-text-secondary mt-1 max-w-xs">{error}</p>
                         </div>
                         <button
-                            onClick={loadExtensions}
+                            onClick={handleRefresh}
                             className="mt-2 text-xs px-3 py-1.5 bg-ide-sidebar border border-ide-border rounded hover:bg-ide-hover transition-colors text-ide-text-primary"
                         >
                             Retry
