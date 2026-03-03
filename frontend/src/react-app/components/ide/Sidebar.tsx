@@ -32,6 +32,8 @@ interface SidebarProps {
   onDelete: (item: FileItem) => void;
   onDuplicate: (item: FileItem) => void;
   onFolderExpand?: (item: FileItem) => void;
+  width: number;
+  isResizing: boolean;
 }
 
 const getFileIcon = (filename: string) => {
@@ -197,6 +199,8 @@ export default function Sidebar({
   onDelete,
   onDuplicate,
   onFolderExpand,
+  width,
+  isResizing,
 }: SidebarProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "components"]));
 
@@ -269,7 +273,13 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="w-64 bg-ide-sidebar border-r border-ide-border flex flex-col shrink-0">
+    <aside
+      style={{ width }}
+      className={cn(
+        "bg-ide-sidebar border-r border-ide-border flex flex-col shrink-0",
+        !isResizing && "transition-all duration-300"
+      )}
+    >
       {/* Header */}
       <div className="h-10 px-3 flex items-center justify-between border-b border-ide-border">
         <span className="text-xs font-medium uppercase tracking-wider text-ide-text-secondary">

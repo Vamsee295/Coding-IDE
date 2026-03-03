@@ -67,6 +67,7 @@ export type IdeCommandId =
     | "run.removeAllBreakpoints"
     | "run.installDebuggers"
     | "terminal.newTerminal"
+    | "terminal.newWithProfile"
     | "terminal.splitTerminal"
     | "terminal.newTerminalWindow"
     | "terminal.runTask"

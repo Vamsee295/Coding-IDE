@@ -239,20 +239,57 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
             name: "Terminal",
             items: [
                 { type: "item", label: "New Terminal", shortcut: "Ctrl+Shift+`", commandId: "terminal.newTerminal" },
-                { type: "item", label: "Split Terminal", shortcut: "Ctrl+Shift+5", commandId: "terminal.splitTerminal" },
                 { type: "item", label: "New Terminal Window", shortcut: "Ctrl+Shift+Alt+`", commandId: "terminal.newTerminalWindow" },
+                { type: "item", label: "Split Terminal", shortcut: "Ctrl+Shift+5", commandId: "terminal.splitTerminal" },
                 { type: "separator" },
-                { type: "item", label: "Run Task...", commandId: "terminal.runTask" },
-                { type: "item", label: "Run Build Task...", shortcut: "Ctrl+Shift+B", commandId: "terminal.runBuildTask" },
-                { type: "item", label: "Run Active File", commandId: "terminal.runActiveFile" },
-                { type: "item", label: "Run Selected Text", commandId: "terminal.runSelectedText" },
+                {
+                    type: "item",
+                    label: "PowerShell",
+                    onClick: () => dispatchCommand("terminal.newWithProfile", "PowerShell")
+                },
+                {
+                    type: "item",
+                    label: "Git Bash",
+                    onClick: () => dispatchCommand("terminal.newWithProfile", "Git Bash")
+                },
+                {
+                    type: "item",
+                    label: "Command Prompt",
+                    onClick: () => dispatchCommand("terminal.newWithProfile", "Command Prompt")
+                },
+                {
+                    type: "item",
+                    label: "Ubuntu (WSL)",
+                    onClick: () => dispatchCommand("terminal.newWithProfile", "Ubuntu (WSL)")
+                },
+                {
+                    type: "item",
+                    label: "JavaScript Debug Terminal",
+                    onClick: () => dispatchCommand("terminal.newWithProfile", "JavaScript Debug Terminal")
+                },
+                { type: "submenu", label: "Split Terminal with Profile", items: [] },
                 { type: "separator" },
-                { type: "item", label: "Show Running Tasks...", commandId: "terminal.runTask" },
-                { type: "item", label: "Restart Running Task...", commandId: "terminal.runTask" },
-                { type: "item", label: "Terminate Task...", commandId: "terminal.runTask" },
+                {
+                    type: "item",
+                    label: "Configure Terminal Settings",
+                    onClick: () => alert("Terminal Settings coming soon!")
+                },
+                {
+                    type: "item",
+                    label: "Select Default Profile",
+                    onClick: () => alert("Select Default Profile coming soon!")
+                },
                 { type: "separator" },
-                { type: "item", label: "Configure Tasks...", commandId: "terminal.configureTasks" },
-                { type: "item", label: "Configure Default Build Task...", commandId: "terminal.configureTasks" }
+                {
+                    type: "item",
+                    label: "Run Task...",
+                    onClick: () => dispatchCommand("terminal.runTask")
+                },
+                {
+                    type: "item",
+                    label: "Configure Tasks...",
+                    onClick: () => alert("Configure Tasks coming soon!")
+                },
             ]
         },
         {

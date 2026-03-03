@@ -1,28 +1,27 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
-import { Terminal as TerminalIcon, X, Plus, ChevronDown, Trash2, Play, Download } from "lucide-react";
+import { Terminal as TerminalIcon, X, Plus, ChevronDown, Trash2, SquareSplitHorizontal, Settings, LayoutList, AlertCircle, Bug, Layers, Wifi } from "lucide-react";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
-import axios from "axios";
 import { io, Socket } from "socket.io-client";
-import { useExtensions } from "@/react-app/contexts/ExtensionContext";
 
 const BACKEND_WS_URL = "http://localhost:8082";
-const BACKEND_API_URL = "http://localhost:8081/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TerminalTab {
-  id: string;          // local tab id (used as React key)
-  terminalId: string;  // backend PTY id (empty until "terminal-created" arrives)
+  id: string;
+  terminalId: string;
   name: string;
+  label?: string; // e.g. "frontend", "backend"
   cwd: string;
   isActive: boolean;
+  profile?: string; // shell profile e.g. PowerShell, Git Bash
 }
 
 interface TabSession {
@@ -31,9 +30,9 @@ interface TabSession {
 }
 
 export interface TerminalPanelHandle {
-  /** Open a brand-new terminal tab rooted at `path`. */
   openTerminalForWorkspace: (path: string) => void;
-  /** Run a direct command string in the active terminal. */
+  openTerminalWithProfile: (path: string, profile: string) => void;
+  resetForNewWorkspace: (path: string) => void;
   executeCommand: (command: string) => void;
 }
 
@@ -42,9 +41,19 @@ interface TerminalPanelProps {
   onClose: () => void;
   height: number;
   onHeightChange: (height: number) => void;
-  /** Initial workspace path — used only for the very first terminal. */
   initialCwd?: string;
 }
+
+// VS Code-style top panel tabs
+type PanelTab = "problems" | "output" | "debug" | "terminal" | "ports";
+
+// Terminal profiles
+const TERMINAL_PROFILES = [
+  { label: "PowerShell", value: "PowerShell", icon: ">" },
+  { label: "Git Bash", value: "Git Bash", icon: "$" },
+  { label: "Command Prompt", value: "Command Prompt", icon: ">" },
+  { label: "Ubuntu (WSL)", value: "Ubuntu (WSL)", icon: "$" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TerminalPanel
@@ -57,43 +66,33 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
   onHeightChange,
   initialCwd,
 }, ref) {
-  const { isExtensionEnabled } = useExtensions();
-
-  const runnerEnabled = isExtensionEnabled("auto-runner");
-  const langManagerEnabled = isExtensionEnabled("language-manager");
-
-  const AVAILABLE_QUICK_COMMANDS = [
-    { label: "▶  Run Project", command: "autoRun", icon: <Play className="w-3.5 h-3.5" />, enabled: runnerEnabled },
-    { label: "📦 Install Dependencies", command: "autoRun", icon: <Download className="w-3.5 h-3.5" />, enabled: runnerEnabled },
-    { label: "⬇  Install Node.js", command: "installNode", icon: null, enabled: langManagerEnabled },
-    { label: "⬇  Install Python 3", command: "installPython", icon: null, enabled: langManagerEnabled },
-    { label: "⬇  Install Java 21", command: "installJava", icon: null, enabled: langManagerEnabled },
-    { label: "⬇  Install Maven", command: "installMaven", icon: null, enabled: langManagerEnabled },
-  ].filter(cmd => cmd.enabled);
-
   // ── State ─────────────────────────────────────────────────────────────────
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
-  const [showQuickCommands, setShowQuickCommands] = useState(false);
+  const [activePanelTab, setActivePanelTab] = useState<PanelTab>("terminal");
+  const [showDropdown, setShowDropdown] = useState(false);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
-  /** xterm sessions keyed by tab.id (local) */
   const sessions = useRef<Map<string, TabSession>>(new Map());
-  /** Backend PTY terminalId keyed by tab.id (local) */
   const terminalIds = useRef<Map<string, string>>(new Map());
-
-  const terminalContainerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const resizeStartY = useRef(0);
   const resizeStartHeight = useRef(0);
-
-  /** Single shared Socket.io connection */
   const socketRef = useRef<Socket | null>(null);
-
-  /** Callbacks awaiting a `terminal-created` response — keyed by pending tabId */
   const pendingCreations = useRef<Map<string, (terminalId: string) => void>>(new Map());
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // ── Socket Setup (one connection shared across all tabs) ──────────────────
+  // ── Close dropdown on outside click ─────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
+  // ── Socket Setup ──────────────────────────────────────────────────────────
   useEffect(() => {
     const socket = io(BACKEND_WS_URL, {
       transports: ["websocket"],
@@ -102,13 +101,7 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
     });
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      console.log("[TerminalPanel] Socket connected:", socket.id);
-    });
-
-    // Route output to the correct xterm instance
     socket.on("terminal-output", ({ terminalId, data }: { terminalId: string; data: string | ArrayBuffer }) => {
-      // Find the tab that owns this terminalId
       let ownerTabId: string | undefined;
       terminalIds.current.forEach((tid, tabId) => {
         if (tid === terminalId) ownerTabId = tabId;
@@ -123,11 +116,7 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
       }
     });
 
-    // Backend confirmed PTY creation — resolve the pending callback
     socket.on("terminal-created", ({ terminalId }: { terminalId: string }) => {
-      console.log("[TerminalPanel] terminal-created:", terminalId);
-      // Find which local tab was waiting for this — match via pendingCreations
-      // We use a simple FIFO model: first pending creation gets the first response
       const firstKey = [...pendingCreations.current.keys()][0];
       if (firstKey) {
         const resolve = pendingCreations.current.get(firstKey)!;
@@ -136,21 +125,10 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
       }
     });
 
-    socket.on("connect_error", (err) => {
-      console.error("[TerminalPanel] Connection error:", err.message);
-    });
-
-    socket.on("disconnect", () => {
-      console.log("[TerminalPanel] Socket disconnected.");
-    });
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, []);
 
   // ── xterm Session Helpers ─────────────────────────────────────────────────
-
   const createXtermSession = useCallback((container: HTMLDivElement): TabSession => {
     const term = new Terminal({
       fontFamily: '"Cascadia Code", "Cascadia Mono", "Fira Code", "JetBrains Mono", monospace',
@@ -194,12 +172,10 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
     return { terminal: term, fitAddon };
   }, []);
 
-  /** Create backend PTY + xterm session for a tab. */
-  const spawnTerminalForTab = useCallback((tabId: string, cwd: string, container: HTMLDivElement) => {
+  const spawnTerminalForTab = useCallback((tabId: string, cwd: string, container: HTMLDivElement, profile?: string) => {
     const session = createXtermSession(container);
     sessions.current.set(tabId, session);
 
-    // Route keystrokes → backend PTY (by terminalId)
     session.terminal.onData((data) => {
       const terminalId = terminalIds.current.get(tabId);
       if (terminalId && socketRef.current?.connected) {
@@ -207,7 +183,6 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
       }
     });
 
-    // Route resize → backend PTY
     session.terminal.onResize(({ cols, rows }) => {
       const terminalId = terminalIds.current.get(tabId);
       if (terminalId && socketRef.current?.connected) {
@@ -215,18 +190,14 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
       }
     });
 
-    // Ask backend to spawn a real PTY in `cwd`
     const emitCreate = () => {
       if (!socketRef.current?.connected) {
-        // Retry once the socket connects
         socketRef.current?.once("connect", () => emitCreate());
         return;
       }
 
-      // Register a resolver that will be called when backend confirms creation
       pendingCreations.current.set(tabId, (terminalId: string) => {
         terminalIds.current.set(tabId, terminalId);
-        // Now that we have the real terminalId, emit the initial resize
         try {
           session.fitAddon.fit();
           socketRef.current?.emit("resize", {
@@ -237,8 +208,8 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
         } catch (_) { }
       });
 
-      const folderName = cwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
-      socketRef.current.emit("create-terminal", { cwd, name: folderName });
+      const folderName = profile || cwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
+      socketRef.current.emit("create-terminal", { cwd, name: folderName, profile });
     };
 
     emitCreate();
@@ -259,21 +230,28 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
     }
   }, []);
 
-  // ── Public API (imperative handle) ────────────────────────────────────────
-
+  // ── Public API ────────────────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
     openTerminalForWorkspace: (path: string) => {
       if (!path) return;
       const folderName = path.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
       const newId = `terminal-${Date.now()}`;
-      const newTab: TerminalTab = {
-        id: newId,
-        terminalId: "",
-        name: folderName,
-        cwd: path,
-        isActive: true,
-      };
+      const newTab: TerminalTab = { id: newId, terminalId: "", name: folderName, cwd: path, isActive: true };
       setTabs(prev => [...prev.map(t => ({ ...t, isActive: false })), newTab]);
+    },
+    openTerminalWithProfile: (path: string, profile: string) => {
+      if (!path) return;
+      const newId = `terminal-profile-${Date.now()}`;
+      const newTab: TerminalTab = { id: newId, terminalId: "", name: profile, cwd: path, isActive: true, profile };
+      setTabs(prev => [...prev.map(t => ({ ...t, isActive: false })), newTab]);
+    },
+    resetForNewWorkspace: (path: string) => {
+      if (!path) return;
+      sessions.current.forEach((_, id) => destroySession(id));
+      const folderName = path.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
+      const newId = `terminal-${Date.now()}`;
+      const newTab: TerminalTab = { id: newId, terminalId: "", name: folderName, cwd: path, isActive: true };
+      setTabs([newTab]);
     },
     executeCommand: (command: string) => {
       const activeTabId = tabs.find(t => t.isActive)?.id;
@@ -283,10 +261,9 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
         socketRef.current.emit("terminal-input", { terminalId, data: command + "\n" });
       }
     }
-  }), [tabs]);
+  }), [tabs, destroySession]);
 
-  // ── First terminal on mount (for initial project) ─────────────────────────
-
+  // ── First terminal on mount ───────────────────────────────────────────────
   const initialBootRef = useRef(false);
   useEffect(() => {
     if (initialBootRef.current || !initialCwd || tabs.length > 0) return;
@@ -296,55 +273,43 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
     setTabs([{ id: newId, terminalId: "", name: folderName, cwd: initialCwd, isActive: true }]);
   }, [initialCwd, tabs.length]);
 
-  // ── Mount xterm when a new tab becomes active ─────────────────────────────
-
+  // ── Mount xterm session on active tab ────────────────────────────────────
   const activeTabId = tabs.find(t => t.isActive)?.id;
 
   useEffect(() => {
-    if (!isVisible || !terminalContainerRef.current || !activeTabId) return;
+    if (!isVisible || !activeTabId || activePanelTab !== "terminal") return;
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return;
 
-    const container = terminalContainerRef.current;
+    requestAnimationFrame(() => {
+      const container = document.getElementById(`terminal-container-${activeTabId}`);
+      if (!container) return;
 
-    if (!sessions.current.has(activeTabId)) {
-      // Brand new tab — spawn PTY + xterm
-      spawnTerminalForTab(activeTabId, activeTab.cwd, container);
-    } else {
-      // Existing session — just re-fit
-      try { sessions.current.get(activeTabId)!.fitAddon.fit(); } catch (_) { }
-    }
-    sessions.current.get(activeTabId)?.terminal.focus();
+      if (!sessions.current.has(activeTabId)) {
+        spawnTerminalForTab(activeTabId, activeTab.cwd, container as HTMLDivElement, activeTab.profile);
+      } else {
+        try { sessions.current.get(activeTabId)!.fitAddon.fit(); } catch (_) { }
+      }
+      sessions.current.get(activeTabId)?.terminal.focus();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, activeTabId, height, tabs.length]);
+  }, [isVisible, activeTabId, height, tabs.length, activePanelTab]);
 
   useEffect(() => { sessions.current.forEach(s => { try { s.fitAddon.fit(); } catch (_) { } }); }, [height]);
   useEffect(() => { return () => { sessions.current.forEach((_, id) => destroySession(id)); }; }, [destroySession]);
 
-  // ── Quick Commands ────────────────────────────────────────────────────────
-
-  const executeQuickCommand = async (commandName: string) => {
-    setShowQuickCommands(false);
-    const activeTab = tabs.find(t => t.isActive);
-    try {
-      await axios.post(`${BACKEND_API_URL}/commands/${commandName}`, {
-        cwd: activeTab?.cwd || "",
-      });
-    } catch {
-      // streaming output arrives via WebSocket
-    }
-  };
-
   // ── Tab Management ────────────────────────────────────────────────────────
 
-  const handleNewTab = () => {
+  const spawnNewTerminal = (profile?: string) => {
+    setShowDropdown(false);
     const activeCwd = tabs.find(t => t.isActive)?.cwd || "";
-    const folderName = activeCwd.split(/[/\\]/).filter(Boolean).pop() || "PowerShell";
+    const folderName = profile || activeCwd.split(/[/\\]/).filter(Boolean).pop() || "PowerShell";
     const newId = `terminal-${Date.now()}`;
     setTabs(prev => [
       ...prev.map(t => ({ ...t, isActive: false })),
-      { id: newId, terminalId: "", name: folderName, cwd: activeCwd, isActive: true },
+      { id: newId, terminalId: "", name: folderName, cwd: activeCwd, isActive: true, profile },
     ]);
+    if (activePanelTab !== "terminal") setActivePanelTab("terminal");
   };
 
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
@@ -361,6 +326,7 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
 
   const handleSelectTab = (tabId: string) => {
     setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === tabId })));
+    setActivePanelTab("terminal");
     setTimeout(() => {
       const s = sessions.current.get(tabId);
       if (s) { try { s.fitAddon.fit(); } catch (_) { } s.terminal.focus(); }
@@ -372,7 +338,6 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
   };
 
   // ── Resize Handle ─────────────────────────────────────────────────────────
-
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
     resizeStartY.current = e.clientY;
@@ -399,90 +364,191 @@ const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>(functi
 
   if (!isVisible) return null;
 
+  const panelTabs: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
+    { id: "problems", label: "Problems", icon: <AlertCircle className="w-3.5 h-3.5" /> },
+    { id: "output", label: "Output", icon: <Layers className="w-3.5 h-3.5" /> },
+    { id: "debug", label: "Debug Console", icon: <Bug className="w-3.5 h-3.5" /> },
+    { id: "terminal", label: "Terminal", icon: <TerminalIcon className="w-3.5 h-3.5" /> },
+    { id: "ports", label: "Ports", icon: <Wifi className="w-3.5 h-3.5" /> },
+  ];
+
   return (
     <div className="bg-ide-bg border-t border-ide-border flex flex-col" style={{ height: `${height}px` }}>
       {/* Resize Handle */}
       <div className="h-1 bg-ide-border hover:bg-indigo-500 cursor-row-resize transition-colors flex-shrink-0" onMouseDown={handleMouseDown} />
 
-      {/* Tab Bar */}
-      <div className="h-9 bg-ide-sidebar border-b border-ide-border flex items-center justify-between px-2 flex-shrink-0">
-        <div className="flex items-center gap-1 overflow-x-auto">
-          {tabs.map(tab => (
-            <div
-              key={tab.id}
+      {/* VS Code-style Top Tab Bar (Problems | Output | Debug Console | Terminal | Ports) */}
+      <div className="h-9 bg-[#1e2030] border-b border-ide-border flex items-center justify-between px-2 flex-shrink-0">
+        <div className="flex items-center h-full">
+          {panelTabs.map(pt => (
+            <button
+              key={pt.id}
+              onClick={() => setActivePanelTab(pt.id)}
               className={cn(
-                "h-7 flex items-center gap-2 px-3 rounded-t text-xs transition-colors cursor-pointer group flex-shrink-0",
-                tab.isActive
-                  ? "bg-ide-bg text-ide-text-primary"
-                  : "text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+                "h-full flex items-center gap-1.5 px-3 text-xs font-medium border-b-2 transition-colors",
+                activePanelTab === pt.id
+                  ? "border-indigo-400 text-ide-text-primary"
+                  : "border-transparent text-ide-text-secondary hover:text-ide-text-primary"
               )}
-              onClick={() => handleSelectTab(tab.id)}
-              title={tab.cwd}
             >
-              <TerminalIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-              <span className="max-w-[120px] truncate">{tab.name}</span>
-              {tabs.length > 1 && (
-                <button
-                  onClick={(e) => handleCloseTab(tab.id, e)}
-                  className="w-4 h-4 flex items-center justify-center rounded hover:bg-ide-border opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
+              {pt.icon}
+              {pt.label}
+            </button>
           ))}
-          <Button variant="ghost" size="icon" onClick={handleNewTab} className="h-6 w-6 flex-shrink-0 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="New Terminal">
-            <Plus className="w-3.5 h-3.5" />
-          </Button>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Quick Commands */}
-          <div className="relative">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowQuickCommands(p => !p)}
-              className="h-6 px-2 text-xs text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover flex items-center gap-1"
-              title="Quick Commands"
-            >
-              <Play className="w-3 h-3 text-green-400" />
-              <span className="hidden sm:inline">Quick Commands</span>
-              <ChevronDown className="w-3 h-3" />
-            </Button>
-            {showQuickCommands && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-[#1a1d2e] border border-ide-border rounded-lg shadow-2xl z-50 overflow-hidden">
-                {AVAILABLE_QUICK_COMMANDS.length === 0 ? (
-                  <div className="px-3 py-2 text-[10px] text-ide-text-secondary italic bg-ide-sidebar">
-                    No quick commands available. Enable extensions in settings.
-                  </div>
-                ) : (
-                  AVAILABLE_QUICK_COMMANDS.map(qc => (
+        {/* Right Toolbar: +▾ | … | Split | Trash | Close */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {/* New Terminal + Dropdown */}
+          <div className="relative" ref={dropdownRef}>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => spawnNewTerminal()}
+                className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+                title="New Terminal"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowDropdown(p => !p)}
+                className="h-6 w-4 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+                title="Terminal Options"
+              >
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </div>
+
+            {showDropdown && (
+              <div className="absolute right-0 top-full mt-1 w-72 bg-[#1a1d2e] border border-ide-border rounded-lg shadow-2xl z-50 overflow-hidden text-sm">
+                {/* New Terminal group */}
+                <div className="border-b border-ide-border/60">
+                  <button onClick={() => spawnNewTerminal()} className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors">
+                    <span className="font-medium">New Terminal</span>
+                    <span className="text-ide-text-secondary text-[10px]">Ctrl+Shift+`</span>
+                  </button>
+                  <button className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors opacity-60 cursor-not-allowed">
+                    <span>New Terminal Window</span>
+                    <span className="text-ide-text-secondary text-[10px]">Ctrl+Shift+Alt+`</span>
+                  </button>
+                  <button className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors opacity-60 cursor-not-allowed">
+                    <span>Split Terminal</span>
+                    <span className="text-ide-text-secondary text-[10px]">Ctrl+Shift+5</span>
+                  </button>
+                </div>
+
+                {/* Shell profiles */}
+                <div className="border-b border-ide-border/60">
+                  {TERMINAL_PROFILES.map(p => (
                     <button
-                      key={qc.command + qc.label}
-                      onClick={() => executeQuickCommand(qc.command)}
-                      className="w-full text-left px-3 py-2 text-xs text-ide-text-secondary hover:bg-ide-hover hover:text-ide-text-primary transition-colors flex items-center gap-2"
+                      key={p.value}
+                      onClick={() => spawnNewTerminal(p.value)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors"
                     >
-                      {qc.icon}
-                      {qc.label}
+                      <span className="text-indigo-400 font-mono text-[11px] w-4">{p.icon}</span>
+                      {p.label}
                     </button>
-                  ))
-                )}
+                  ))}
+                  <button className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-secondary hover:bg-ide-hover hover:text-ide-text-primary transition-colors opacity-60 cursor-not-allowed">
+                    <span>Split Terminal with Profile</span>
+                    <span className="text-[10px]">›</span>
+                  </button>
+                </div>
+
+                {/* Settings */}
+                <div>
+                  <button className="w-full flex items-center gap-2 px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors">
+                    <Settings className="w-3.5 h-3.5 text-ide-text-secondary" />
+                    Configure Terminal Settings
+                  </button>
+                  <button className="w-full flex items-center gap-2 px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors">
+                    <LayoutList className="w-3.5 h-3.5 text-ide-text-secondary" />
+                    Select Default Profile
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
+          {/* Split icon (cosmetic) */}
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Split Terminal">
+            <SquareSplitHorizontal className="w-3.5 h-3.5" />
+          </Button>
+
+          {/* Clear */}
           <Button variant="ghost" size="icon" onClick={handleClearTerminal} className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Clear Terminal">
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Hide Terminal">
-            <ChevronDown className="w-3.5 h-3.5" />
+
+          {/* Close panel */}
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover" title="Close Panel">
+            <X className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
 
-      {/* xterm.js renders here */}
-      <div ref={terminalContainerRef} className="flex-1 min-h-0 overflow-hidden" style={{ padding: "4px 4px 0 4px" }} />
+      {/* Body — Terminal list on right, xterm on left */}
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        {activePanelTab === "terminal" ? (
+          <>
+            {/* xterm area */}
+            <div className="flex-1 min-w-0 overflow-hidden" style={{ padding: "4px 0 0 4px" }}>
+              {tabs.map(tab => (
+                <div
+                  key={tab.id}
+                  id={`terminal-container-${tab.id}`}
+                  className={tab.isActive ? "h-full w-full block" : "hidden"}
+                />
+              ))}
+              {tabs.length === 0 && (
+                <div className="h-full flex items-center justify-center text-ide-text-secondary text-xs">
+                  No terminals. Click + to open one.
+                </div>
+              )}
+            </div>
+
+            {/* Terminal list sidebar (VS Code style) */}
+            {tabs.length > 0 && (
+              <div className="w-44 flex-shrink-0 border-l border-ide-border bg-[#1a1d2e] overflow-y-auto">
+                {tabs.map(tab => (
+                  <div
+                    key={tab.id}
+                    onClick={() => handleSelectTab(tab.id)}
+                    className={cn(
+                      "group flex items-center gap-2 px-2 py-1.5 cursor-pointer text-xs transition-colors",
+                      tab.isActive
+                        ? "bg-ide-hover text-ide-text-primary"
+                        : "text-ide-text-secondary hover:bg-ide-hover/50 hover:text-ide-text-primary"
+                    )}
+                  >
+                    <TerminalIcon className={cn("w-3.5 h-3.5 flex-shrink-0", tab.isActive ? "text-indigo-400" : "text-ide-text-secondary")} />
+                    <div className="flex-1 min-w-0 leading-tight">
+                      <div className="font-mono truncate">{tab.profile ? tab.profile.toLowerCase().split(" ")[0] : tab.name}</div>
+                      {tab.label && <div className="text-[10px] text-ide-text-secondary truncate">{tab.label}</div>}
+                    </div>
+                    <button
+                      onClick={(e) => handleCloseTab(tab.id, e)}
+                      className="w-4 h-4 flex items-center justify-center rounded hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      title="Close"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          /* Other panels (Problems, Output, Debug, Ports) — placeholder */
+          <div className="flex-1 flex items-center justify-center text-ide-text-secondary text-xs gap-2">
+            {panelTabs.find(p => p.id === activePanelTab)?.icon}
+            <span className="capitalize">{activePanelTab === "debug" ? "Debug Console" : activePanelTab} — not yet implemented</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Wrench, Zap, Bot, User, Plus, FileCode } from "lucide-react";
+import { Send, Sparkles, Wrench, Zap, Bot, User, FileCode, X } from "lucide-react";
 import { ChatMessage } from "@/react-app/types/ide";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
@@ -11,25 +11,17 @@ import FileMentions from "@/react-app/components/ide/FileMentions";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
-  onSendMessage: (message: string, taggedFiles?: FileItem[]) => void;
+  onSendMessage: (message: string, taggedFiles?: FileItem[], attachedImages?: string[]) => void;
   onActionClick: (action: "explain" | "fix" | "optimize") => void;
   onApplyAction: (action: AIAction) => void;
   isLoading: boolean;
   selectedModel: string;
   files: FileItem[];
+  width: number;
+  isResizing: boolean;
 }
 
-interface ChatPanelProps {
-  messages: ChatMessage[];
-  onSendMessage: (message: string, taggedFiles?: FileItem[]) => void;
-  onActionClick: (action: "explain" | "fix" | "optimize") => void;
-  onApplyAction: (action: AIAction) => void;
-  isLoading: boolean;
-  selectedModel: string;
-  files: FileItem[];
-}
-
-export default function ChatPanel({ messages, onSendMessage, onActionClick, onApplyAction, isLoading, selectedModel, files }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, onActionClick, onApplyAction, isLoading, selectedModel, files, width, isResizing }: ChatPanelProps) {
   const { isExtensionEnabled } = useExtensions();
   const { settings } = useSettings();
   const aiEnabled = isExtensionEnabled("ai-enhancer");
@@ -51,9 +43,10 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
-      onSendMessage(input.trim(), taggedFiles);
+      onSendMessage(input.trim(), taggedFiles, attachedImages);
       setInput("");
       setTaggedFiles([]);
+      setAttachedImages([]);
     }
   };
 
@@ -109,12 +102,61 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
     }
   };
 
+  const [attachedImages, setAttachedImages] = useState<string[]>([]);
+
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
+      if (item.type.indexOf("image") !== -1) {
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result && typeof event.target.result === 'string') {
+            setAttachedImages(prev => [...prev, event.target!.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      } else if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const text = await file.text();
+        const fakeFileItem: FileItem = {
+          id: `pasted-${Date.now()}-${file.name}`,
+          name: file.name,
+          type: "file",
+          content: text,
+        };
+        setTaggedFiles(prev => [...prev, fakeFileItem]);
+      }
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setAttachedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removeFile = (id: string) => {
+    setTaggedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   return (
-    <aside className="w-80 bg-ide-chat border-l border-ide-border flex flex-col shrink-0 relative">
+    <aside
+      style={{ width }}
+      className={cn(
+        "bg-ide-chat border-l border-ide-border flex flex-col shrink-0 relative",
+        !isResizing && "transition-all duration-300"
+      )}
+    >
       {showMentions && (
         <FileMentions
           files={files}
@@ -306,30 +348,52 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
             {taggedFiles.map(file => (
               <div key={file.id} className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium animate-in fade-in zoom-in-95">
                 <FileCode className="w-2.5 h-2.5" />
-                {file.name}
+                <span className="truncate max-w-[150px]">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(file.id)}
+                  className="ml-1 hover:text-white transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
             ))}
           </div>
         )}
+
+        {attachedImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2 px-1">
+            {attachedImages.map((src, idx) => (
+              <div key={idx} className="relative group animate-in fade-in zoom-in-95">
+                <img
+                  src={src}
+                  alt={`Attached ${idx + 1}`}
+                  className="h-16 w-auto object-cover rounded-md border border-ide-border shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeImage(idx)}
+                  className="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity border border-gray-600 shadow-md"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="relative">
           <textarea
             ref={inputRef}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about your code... Use @ to tag files"
+            onPaste={handlePaste}
+            placeholder="Ask about your code... Paste images/files... Use @ to tag files"
             rows={2}
             className="w-full bg-ide-sidebar border border-ide-border rounded-xl px-4 py-3 pr-12 text-sm text-ide-text-primary placeholder:text-ide-text-secondary resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-inner"
           />
           <div className="absolute right-2 bottom-2 flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="w-7 h-7 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
             <Button
               type="submit"
               size="icon"
@@ -340,6 +404,7 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
             </Button>
           </div>
         </form>
+
         <p className="text-[10px] text-ide-text-secondary mt-2 text-center">
           Model: {selectedModel} • Local Ollama
         </p>

@@ -99,10 +99,10 @@ export default function FileOperationDialog({
                 className="mt-2 bg-ide-bg border-ide-border text-ide-text-primary focus-visible:ring-indigo-500"
                 placeholder={
                   mode === "new-file"
-                    ? "example.tsx"
+                    ? "Enter new file name with extension"
                     : mode === "new-folder"
-                    ? "folder-name"
-                    : ""
+                      ? "Enter new folder name"
+                      : ""
                 }
               />
             </div>

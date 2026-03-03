@@ -41,5 +41,29 @@ export const fsService = {
     async writeFile(path: string, content: string): Promise<string> {
         const response = await axios.post(`${API_BASE_URL}/write`, { path, content });
         return response.data;
+    },
+
+    /**
+     * Create folder
+     */
+    async createFolder(path: string): Promise<string> {
+        const response = await axios.post(`${API_BASE_URL}/createFolder`, { path });
+        return response.data;
+    },
+
+    /**
+     * Delete item
+     */
+    async deleteItem(path: string): Promise<string> {
+        const response = await axios.delete(`${API_BASE_URL}/delete`, { params: { path } });
+        return response.data;
+    },
+
+    /**
+     * Rename item
+     */
+    async renameItem(oldPath: string, newPath: string): Promise<string> {
+        const response = await axios.post(`${API_BASE_URL}/rename`, { oldPath, newPath });
+        return response.data;
     }
 };

@@ -23,6 +23,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   actions?: AIAction[];
+  attachedImages?: string[];
 }
 
 export interface EditorTab {

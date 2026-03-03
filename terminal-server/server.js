@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const pty = require('node-pty');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
+const { spawn } = require('child_process');
 
 const app = express();
 app.use(cors());
@@ -42,15 +43,33 @@ io.on('connection', (socket) => {
     console.log(`[TerminalService] Socket connected: ${socket.id}`);
 
     // ── CREATE TERMINAL ──────────────────────────────────────────────────────
-    // Frontend emits: { cwd, name? }
+    // Frontend emits: { cwd, name?, profile? }
     // Backend responds: { terminalId }
-    socket.on('create-terminal', ({ cwd, name } = {}) => {
+    socket.on('create-terminal', ({ cwd, name, profile } = {}) => {
         const terminalId = uuidv4();
         const workingDir = cwd || os.homedir();
-        const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-        const shellArgs = os.platform() === 'win32' ? ['-NoLogo'] : [];
 
-        console.log(`[TerminalService] Creating terminal ${terminalId} in: ${workingDir}`);
+        let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+        let shellArgs = [];
+
+        if (os.platform() === 'win32') {
+            if (profile === 'Command Prompt') {
+                shell = 'cmd.exe';
+            } else if (profile === 'Git Bash') {
+                shell = 'C:\\Program Files\\Git\\bin\\bash.exe';
+                shellArgs = ['--login'];
+            } else if (profile === 'Ubuntu (WSL)') {
+                shell = 'wsl.exe';
+            } else if (profile === 'JavaScript Debug Terminal') {
+                // A basic node REPL mapping for the sake of the demo
+                shell = 'node.exe';
+            } else {
+                // Default PowerShell
+                shellArgs = ['-NoLogo'];
+            }
+        }
+
+        console.log(`[TerminalService] Creating terminal ${terminalId} in: ${workingDir} with profile: ${profile || 'Default'}`);
 
         try {
             const ptyProcess = pty.spawn(shell, shellArgs, {
@@ -134,6 +153,41 @@ io.on('connection', (socket) => {
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', terminals: Object.keys(terminals).length }));
+
+// Native OS Folder Picker
+app.get('/pick-folder', (req, res) => {
+    if (os.platform() !== 'win32') {
+        return res.status(500).json({ error: 'Only supported on Windows currently' });
+    }
+
+    const ps1Script = `
+        Add-Type -AssemblyName System.windows.forms;
+        $f = New-Object System.Windows.Forms.FolderBrowserDialog;
+        $f.Description = "Select Workspace Folder";
+        $f.ShowNewFolderButton = $true;
+        $result = $f.ShowDialog();
+        if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+            Write-Output $f.SelectedPath
+        }
+    `;
+
+    const ps = spawn('powershell', ['-NoProfile', '-STA', '-Command', ps1Script]);
+
+    let pathChunk = "";
+
+    ps.stdout.on('data', (data) => {
+        pathChunk += data.toString();
+    });
+
+    ps.on('close', (code) => {
+        const selectedPath = pathChunk.trim();
+        if (selectedPath) {
+            res.json({ path: selectedPath });
+        } else {
+            res.json({ path: null });
+        }
+    });
+});
 
 const PORT = 8082;
 server.listen(PORT, () => {

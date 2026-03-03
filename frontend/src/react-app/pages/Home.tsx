@@ -10,7 +10,7 @@ import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
 import { FileItem, ChatMessage, EditorTab, AIAction } from "@/react-app/types/ide";
 import { getProjects, getProjectFiles, createFile, updateFile, deleteFile } from "@/services/api";
-import { openLocalDirectory, buildTreeFromFiles } from "@/utils/fileSystemHelper";
+import { buildTreeFromFiles } from "@/utils/fileSystemHelper";
 import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
 import { commandService } from "@/services/commandService";
@@ -89,6 +89,36 @@ export default function HomePage() {
     updateSettings({ aiModel: model });
   };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [chatPanelWidth, setChatPanelWidth] = useState(320);
+  const [resizingPanel, setResizingPanel] = useState<"sidebar" | "chat" | null>(null);
+
+  useEffect(() => {
+    if (!resizingPanel) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (resizingPanel === "sidebar") {
+        const newWidth = Math.min(Math.max(e.clientX, 150), 600);
+        setSidebarWidth(newWidth);
+      } else if (resizingPanel === "chat") {
+        const newWidth = Math.min(Math.max(window.innerWidth - e.clientX, 200), 800);
+        setChatPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setResizingPanel(null);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizingPanel]);
+
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
@@ -250,12 +280,13 @@ export default function HomePage() {
     );
   }, []);
 
-  const handleSendMessage = useCallback(async (content: string, taggedFiles: FileItem[] = []) => {
+  const handleSendMessage = useCallback(async (content: string, taggedFiles: FileItem[] = [], attachedImages: string[] = []) => {
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
       content,
       timestamp: new Date(),
+      attachedImages: attachedImages.length > 0 ? attachedImages : undefined,
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
@@ -293,20 +324,25 @@ export default function HomePage() {
 
     // 3. Add AI Action Protocol System Prompt
     const systemPrompt = aiOrchestrator.getSystemPrompt();
-
     const finalPrompt = `${systemPrompt}\n\nContext Information:\n${contextBlock}\nUser Question: ${content}`;
 
     try {
+      const requestPayload: any = {
+        model: selectedModel,
+        prompt: finalPrompt,
+        ollamaEndpoint: settings.ollamaEndpoint
+      };
+
+      if (attachedImages && attachedImages.length > 0) {
+        requestPayload.images = attachedImages.map(img => img.replace(/^data:image\/[a-z]+;base64,/, ''));
+      }
+
       const response = await fetch(`http://localhost:8081/api/ai/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          model: selectedModel,
-          prompt: finalPrompt,
-          ollamaEndpoint: settings.ollamaEndpoint
-        })
+        body: JSON.stringify(requestPayload)
       });
 
       if (!response.ok) {
@@ -449,58 +485,133 @@ export default function HomePage() {
     }
   }, [activeProjectId]);
 
+  const findItemById = useCallback((items: FileItem[], id: string): FileItem | undefined => {
+    for (const item of items) {
+      if (item.id === id) return item;
+      if (item.children) {
+        const found = findItemById(item.children, id);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  }, []);
+
   const handleDialogConfirm = useCallback(
     async (value: string) => {
       const { mode, item, parentId } = dialogState;
-      if (!activeProjectId) return;
+
+      const isLocal = !activeProjectId && !!activeProjectPath;
+      if (!activeProjectId && !isLocal) return;
+
+      const getLocalParentPath = () => {
+        if (!parentId || parentId === "root") return activeProjectPath;
+        const parentItem = findItemById(files, parentId);
+        return parentItem?.path || activeProjectPath;
+      };
 
       try {
         switch (mode) {
           case "new-file": {
-            const newFile = await createFile(activeProjectId, value, "file", parentId || "root");
-            const newFileItem: FileItem = {
-              id: newFile.id,
-              name: newFile.name,
-              type: newFile.type,
-              content: newFile.content || "",
-            };
-            setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFileItem));
-            handleFileSelect(newFileItem);
+            if (isLocal) {
+              const parentPath = getLocalParentPath();
+              const newPath = `${parentPath}\\${value}`.replace(/\\\\/g, '\\');
+              await fsService.writeFile(newPath, "");
+              const newFileItem: FileItem = {
+                id: `fs-${newPath}`,
+                name: value,
+                type: "file",
+                path: newPath,
+                content: "",
+              };
+              setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFileItem));
+              handleFileSelect(newFileItem);
+            } else {
+              const newFile = await createFile(activeProjectId!, value, "file", parentId || "root");
+              const newFileItem: FileItem = {
+                id: newFile.id,
+                name: newFile.name,
+                type: newFile.type,
+                content: newFile.content || "",
+              };
+              setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFileItem));
+              handleFileSelect(newFileItem);
+            }
             break;
           }
 
           case "new-folder": {
-            const newFolder = await createFile(activeProjectId, value, "folder", parentId || "root");
-            const newFolderItem: FileItem = {
-              id: newFolder.id,
-              name: newFolder.name,
-              type: newFolder.type,
-              children: [],
-            };
-            setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFolderItem));
+            if (isLocal) {
+              const parentPath = getLocalParentPath();
+              const newPath = `${parentPath}\\${value}`.replace(/\\\\/g, '\\');
+              await fsService.createFolder(newPath);
+              const newFolderItem: FileItem = {
+                id: `fs-${newPath}`,
+                name: value,
+                type: "folder",
+                path: newPath,
+                children: [],
+              };
+              setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFolderItem));
+            } else {
+              const newFolder = await createFile(activeProjectId!, value, "folder", parentId || "root");
+              const newFolderItem: FileItem = {
+                id: newFolder.id,
+                name: newFolder.name,
+                type: newFolder.type,
+                children: [],
+              };
+              setFiles((prev) => findParentAndAdd(prev, parentId || "root", newFolderItem));
+            }
             break;
           }
 
           case "rename": {
             if (item) {
-              const updated = await updateFile(item.id, { name: value });
-              setFiles((prev) =>
-                findAndUpdateFile(prev, item.id, (f) => ({ ...f, name: updated.name }))
-              );
-              setTabs((prev) =>
-                prev.map((t) => (t.id === item.id ? { ...t, name: updated.name } : t))
-              );
+              if (isLocal && item.path) {
+                // Determine parent path of the item to construct new path
+                const parentPathMatch = item.path.match(/(.*)[\/\\][^\/\\]+$/);
+                const parentPath = parentPathMatch ? parentPathMatch[1] : activeProjectPath;
+                const newPath = `${parentPath}\\${value}`.replace(/\\\\/g, '\\');
+                await fsService.renameItem(item.path, newPath);
+
+                setFiles((prev) =>
+                  findAndUpdateFile(prev, item.id, (f) => ({ ...f, name: value, path: newPath, id: `fs-${newPath}` }))
+                );
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === item.id ? { ...t, name: value, path: newPath, id: `fs-${newPath}` } : t))
+                );
+                if (activeFileId === item.id) {
+                  setActiveFileId(`fs-${newPath}`);
+                }
+              } else {
+                const updated = await updateFile(item.id, { name: value });
+                setFiles((prev) =>
+                  findAndUpdateFile(prev, item.id, (f) => ({ ...f, name: updated.name }))
+                );
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === item.id ? { ...t, name: updated.name } : t))
+                );
+              }
             }
             break;
           }
 
           case "delete": {
             if (item) {
-              await deleteFile(item.id);
-              setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
-              setTabs((prev) => prev.filter((t) => t.id !== item.id));
-              if (activeFileId === item.id) {
-                setActiveFileId(null);
+              if (isLocal && item.path) {
+                await fsService.deleteItem(item.path);
+                setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
+                setTabs((prev) => prev.filter((t) => t.id !== item.id));
+                if (activeFileId === item.id) {
+                  setActiveFileId(null);
+                }
+              } else {
+                await deleteFile(item.id);
+                setFiles((prev) => findAndUpdateFile(prev, item.id, () => null));
+                setTabs((prev) => prev.filter((t) => t.id !== item.id));
+                if (activeFileId === item.id) {
+                  setActiveFileId(null);
+                }
               }
             }
             break;
@@ -510,7 +621,7 @@ export default function HomePage() {
         console.error("Failed to execute file operation on backend:", error);
       }
     },
-    [dialogState, activeFileId, activeProjectId, handleFileSelect, findParentAndAdd, findAndUpdateFile]
+    [dialogState, activeFileId, activeProjectId, activeProjectPath, files, handleFileSelect, findParentAndAdd, findAndUpdateFile, findItemById]
   );
 
   const handleFolderExpand = useCallback(async (item: FileItem) => {
@@ -638,40 +749,29 @@ export default function HomePage() {
   useIdeCommandListener("view.terminal", () => setTerminalVisible((prev) => !prev));
   useIdeCommandListener("view.toggleAiChat", () => setAiChatVisible((prev) => !prev));
   useIdeCommandListener("terminal.newTerminal", () => setTerminalVisible(true));
+  useIdeCommandListener("terminal.newWithProfile", (profile: string) => {
+    setTerminalVisible(true);
+    // Let TerminalPanel handle the creation using the requested profile
+    if (terminalRef.current) {
+      terminalRef.current.openTerminalWithProfile(activeProjectPath || "X:\\Project-Buildings", profile);
+    }
+  });
   useIdeCommandListener("file.newFile", () => handleNewFile("root"));
   useIdeCommandListener("file.newTextFile", () => handleNewFile("root"));
   useIdeCommandListener("file.openFolder", async () => {
     try {
-      if ('showDirectoryPicker' in window) {
-        const localFiles = await openLocalDirectory();
-        if (localFiles && localFiles.length > 0) {
-          setFiles(localFiles);
-          setActiveProjectId(null);
-          setTabs([]);
-          setActiveFileId(null);
-          // Derive the root path from the first file's path if available
-          const rootPath = localFiles[0]?.path
-            ? localFiles[0].path.split(/[\/\\]/).slice(0, -1).join("\\") || localFiles[0].path
-            : undefined;
-          if (rootPath) {
-            setActiveProjectPath(rootPath);
-            // Only set initialTerminalCwd once (for the very first terminal)
-            setInitialTerminalCwd(prev => prev ?? rootPath);
-            openBackendWorkspace(rootPath).catch(() => { });
-            // Open a NEW terminal tab for this workspace (only if not the very first boot)
-            if (initialTerminalCwd) {
-              terminalRef.current?.openTerminalForWorkspace(rootPath);
-            }
-            setTerminalVisible(true);
-          }
-
-        }
-      } else {
-        throw new Error("API not supported natively");
+      const resp = await fetch("http://localhost:8082/pick-folder");
+      const data = await resp.json();
+      if (data.path) {
+        await openWorkspacePath(data.path);
       }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        fallbackFileInputRef.current?.click();
+    } catch (e) {
+      console.error("Failed to call native folder picker from terminal server", e);
+      // Fallback
+      const defaultPath = localStorage.getItem("ide-last-active-workspace") || "X:\\Project-Buildings\\";
+      const path = prompt("Enter the absolute path of the project folder:", defaultPath);
+      if (path) {
+        await openWorkspacePath(path);
       }
     }
   });
@@ -694,9 +794,9 @@ export default function HomePage() {
         setInitialTerminalCwd(prev => prev ?? path);
         // Register on backend so terminal + project detector know the workspace
         openBackendWorkspace(path).catch(() => { });
-        // Open a NEW terminal tab for this workspace (only if not the very first boot)
+        // Open a NEW terminal tab for this workspace and clear old ones
         if (initialTerminalCwd) {
-          terminalRef.current?.openTerminalForWorkspace(path);
+          terminalRef.current?.resetForNewWorkspace(path);
         }
         setTerminalVisible(true);
 
@@ -817,6 +917,54 @@ export default function HomePage() {
     }
   });
 
+  useIdeCommandListener("file.newWindow", () => {
+    window.open(window.location.href, "_blank");
+  });
+
+  useIdeCommandListener("file.saveAs", async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab) return;
+
+    const defaultPath = activeTab.path || (activeProjectPath ? `${activeProjectPath}\\new-file.txt` : "X:\\Project-Buildings\\new-file.txt");
+    const newPath = prompt("Enter the absolute path to save the new file:", defaultPath);
+    if (!newPath) return;
+
+    try {
+      await fsService.writeFile(newPath, activeTab.content);
+
+      // Update the active tab to point to the new path
+      const fileName = newPath.split(/[/\\]/).pop() || "new_file";
+      setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, path: newPath, name: fileName, isDirty: false } : t));
+
+      // Reload the workspace files to show the newly saved file in the sidebar if it's within the project path
+      if (activeProjectPath && newPath.startsWith(activeProjectPath)) {
+        openWorkspacePath(activeProjectPath); // Re-fetch the tree
+      } else {
+        alert("File saved successfully.");
+      }
+    } catch (e) {
+      console.error("Failed to Save As", e);
+      alert("Failed to save the file. Check the path and permissions.");
+    }
+  });
+
+  useIdeCommandListener("file.closeFolder", () => {
+    setActiveProjectId(null);
+    setFiles([]);
+    setTabs([]);
+    setActiveFileId(null);
+    setActiveProjectPath(undefined);
+    setInitialTerminalCwd(undefined);
+    // Optionally close the terminal completely or let it sit idle.
+    setTerminalVisible(false);
+  });
+
+  useIdeCommandListener("file.closeWindow", () => {
+    if (confirm("Are you sure you want to close this window?")) {
+      window.close();
+    }
+  });
+
   useIdeCommandListener("file.autoSave", () => {
     updateSettings({ autoSave: !settings.autoSave });
   });
@@ -891,7 +1039,18 @@ export default function HomePage() {
             onDelete={handleDelete}
             onDuplicate={handleDuplicate}
             onFolderExpand={handleFolderExpand}
+            width={sidebarWidth}
+            isResizing={resizingPanel === "sidebar"}
           />
+          {!sidebarCollapsed && (
+            <div
+              className="w-1 bg-transparent hover:bg-indigo-500/50 cursor-col-resize z-10 transition-colors active:bg-indigo-500 shrink-0 select-none"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setResizingPanel("sidebar");
+              }}
+            />
+          )}
           <Editor
             tabs={tabs}
             onTabSelect={handleTabSelect}
@@ -900,15 +1059,26 @@ export default function HomePage() {
             onSelectionChange={handleSelectionChange}
           />
           {aiChatVisible && (
-            <ChatPanel
-              messages={messages}
-              onSendMessage={handleSendMessage}
-              onActionClick={handleActionClick}
-              onApplyAction={handleApplyAction}
-              isLoading={isLoading}
-              selectedModel={selectedModel}
-              files={files}
-            />
+            <>
+              <div
+                className="w-1 bg-transparent hover:bg-indigo-500/50 cursor-col-resize z-10 transition-colors active:bg-indigo-500 shrink-0 select-none"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setResizingPanel("chat");
+                }}
+              />
+              <ChatPanel
+                messages={messages}
+                onSendMessage={handleSendMessage}
+                onActionClick={handleActionClick}
+                onApplyAction={handleApplyAction}
+                isLoading={isLoading}
+                selectedModel={selectedModel}
+                files={files}
+                width={chatPanelWidth}
+                isResizing={resizingPanel === "chat"}
+              />
+            </>
           )}
         </div>
         <TerminalPanel

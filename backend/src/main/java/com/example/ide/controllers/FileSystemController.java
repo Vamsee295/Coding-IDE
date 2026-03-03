@@ -114,4 +114,89 @@ public class FileSystemController {
         result.put("name", file.getName());
         return ResponseEntity.ok(result);
     }
+
+    /**
+     * Creates a new directory
+     */
+    @PostMapping("/createFolder")
+    public ResponseEntity<?> createFolder(@RequestBody Map<String, String> payload) {
+        String pathStr = payload.get("path");
+        if (pathStr == null) {
+            return ResponseEntity.badRequest().body("Path is required");
+        }
+
+        try {
+            Path dirPath = Paths.get(pathStr);
+            if (!Files.exists(dirPath)) {
+                Files.createDirectories(dirPath);
+                return ResponseEntity.ok("Folder created successfully");
+            } else {
+                return ResponseEntity.badRequest().body("Folder already exists");
+            }
+        } catch (IOException e) {
+            return ResponseEntity.status(500).body("Error creating folder: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Deletes a file or directory
+     */
+    @DeleteMapping("/delete")
+    public ResponseEntity<?> deleteItem(@RequestParam String path) {
+        if (path == null) {
+            return ResponseEntity.badRequest().body("Path is required");
+        }
+
+        try {
+            Path itemPath = Paths.get(path);
+            if (Files.exists(itemPath)) {
+                deleteDirectoryRecursively(itemPath.toFile());
+                return ResponseEntity.ok("Item deleted successfully");
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error deleting item: " + e.getMessage());
+        }
+    }
+
+    private void deleteDirectoryRecursively(File file) {
+        File[] contents = file.listFiles();
+        if (contents != null) {
+            for (File f : contents) {
+                deleteDirectoryRecursively(f);
+            }
+        }
+        file.delete();
+    }
+
+    /**
+     * Renames a file or directory
+     */
+    @PostMapping("/rename")
+    public ResponseEntity<?> renameItem(@RequestBody Map<String, String> payload) {
+        String oldPathStr = payload.get("oldPath");
+        String newPathStr = payload.get("newPath");
+        
+        if (oldPathStr == null || newPathStr == null) {
+            return ResponseEntity.badRequest().body("oldPath and newPath are required");
+        }
+
+        try {
+            Path oldPath = Paths.get(oldPathStr);
+            Path newPath = Paths.get(newPathStr);
+            
+            if (!Files.exists(oldPath)) {
+                return ResponseEntity.notFound().build();
+            }
+            if (Files.exists(newPath)) {
+                return ResponseEntity.badRequest().body("Destination already exists");
+            }
+            
+            Files.move(oldPath, newPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return ResponseEntity.ok("Item renamed successfully");
+        } catch (IOException e) {
+            return ResponseEntity.status(500).body("Error renaming item: " + e.getMessage());
+        }
+    }
 }

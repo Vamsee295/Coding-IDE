@@ -44,11 +44,14 @@ public class OllamaProxyController {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            Map<String, Object> ollamaBody = Map.of(
-                "model", model,
-                "prompt", prompt,
-                "stream", false
-            );
+            Map<String, Object> ollamaBody = new java.util.HashMap<>();
+            ollamaBody.put("model", model);
+            ollamaBody.put("prompt", prompt);
+            ollamaBody.put("stream", false);
+            
+            if (payload.containsKey("images")) {
+                ollamaBody.put("images", payload.get("images"));
+            }
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(ollamaBody, headers);
 
