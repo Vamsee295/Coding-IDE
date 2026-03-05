@@ -43,6 +43,7 @@ interface TerminalTabData {
   cwd: string;
   isActive: boolean;
   profile?: string;
+  isSplit?: boolean;
 }
 
 interface TabSession {
@@ -55,6 +56,9 @@ export interface TerminalPanelHandle {
   openTerminalWithProfile: (path: string, profile: string) => void;
   resetForNewWorkspace: (path: string) => void;
   executeCommand: (command: string) => void;
+  killActiveTerminal: () => void;
+  clearActiveTerminal: () => void;
+  splitTerminal: () => void;
 }
 
 interface PanelManagerProps {
@@ -86,9 +90,11 @@ const PANEL_TABS: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
 
 const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
   function PanelManagerInner({ isVisible, onClose, height, onHeightChange, initialCwd }, ref) {
+    console.log("[TerminalPanel] Rendered with initialCwd:", initialCwd);
 
     const [activePanel, setActivePanel] = useState<PanelTab>("terminal");
     const [tabs, setTabs] = useState<TerminalTabData[]>([]);
+    const [splitTerminalId, setSplitTerminalId] = useState<string | null>(null);
     const [showDropdown, setShowDropdown] = useState(false);
 
     const sessions = useRef<Map<string, TabSession>>(new Map());
@@ -118,14 +124,18 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
       socket.on("terminal-output", ({ terminalId, data }: { terminalId: string; data: string | ArrayBuffer }) => {
         let ownerTabId: string | undefined;
         terminalIds.current.forEach((tid, tabId) => { if (tid === terminalId) ownerTabId = tabId; });
-        if (!ownerTabId) return;
+        if (!ownerTabId) {
+          console.warn(`[TerminalPanel] Received output for unknown terminalId: ${terminalId}`);
+          return;
+        }
         const session = sessions.current.get(ownerTabId);
         if (!session) return;
         if (typeof data === "string") session.terminal.write(data);
         else if (data instanceof ArrayBuffer) session.terminal.write(new Uint8Array(data));
       });
 
-      socket.on("terminal-created", ({ terminalId }: { terminalId: string }) => {
+      socket.on("terminal-created", ({ terminalId, cwd, name }: { terminalId: string, cwd: string, name: string }) => {
+        console.log(`[TerminalPanel] terminal-created received: id=${terminalId}, cwd=${cwd}, name=${name}`);
         const firstKey = [...pendingCreations.current.keys()][0];
         if (firstKey) {
           const resolve = pendingCreations.current.get(firstKey)!;
@@ -185,6 +195,7 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
           } catch (_) { }
         });
         const folderName = profile || cwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
+        console.log(`[TerminalPanel] Emitting create-terminal for tab=${tabId}, cwd=${cwd}, profile=${profile}`);
         socketRef.current!.emit("create-terminal", { cwd, name: folderName, profile });
       };
       emitCreate();
@@ -228,16 +239,43 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
         const tid = terminalIds.current.get(active.id);
         if (tid && socketRef.current?.connected) socketRef.current.emit("terminal-input", { terminalId: tid, data: command + "\n" });
       },
-    }), [tabs, destroySession]);
+      killActiveTerminal: () => {
+        const active = tabs.find(t => t.isActive);
+        if (!active) return;
+        destroySession(active.id);
+        setTabs(prev => {
+          const filtered = prev.filter(t => t.id !== active.id);
+          if (filtered.length > 0)
+            filtered[filtered.length - 1] = { ...filtered[filtered.length - 1], isActive: true };
+          return filtered;
+        });
+      },
+      clearActiveTerminal: () => {
+        const active = tabs.find(t => t.isActive);
+        if (active) sessions.current.get(active.id)?.terminal.clear();
+      },
+      splitTerminal: () => {
+        const cwd = tabs.find(t => t.isActive)?.cwd || initialCwd || "";
+        const id = `terminal-${Date.now()}`;
+        setTabs(prev => {
+          // Add new split terminal to the tab list, keep current active
+          const updated = prev.map(t => ({ ...t, isSplit: false }));
+          return [...updated, { id, terminalId: "", name: "Split", cwd, isActive: false, isSplit: true }];
+        });
+        setSplitTerminalId(id);
+        setActivePanel("terminal");
+      }
+    }), [tabs, destroySession, initialCwd]);
 
     // First terminal
     const initialBootRef = useRef(false);
     useEffect(() => {
+      // Wait for initialCwd to be provided
       if (initialBootRef.current || !initialCwd || tabs.length > 0) return;
       initialBootRef.current = true;
-      const name = initialCwd.split(/[/\\]/).filter(Boolean).pop() || "Home";
+      const name = initialCwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
       setTabs([{ id: `terminal-initial-${Date.now()}`, terminalId: "", name, cwd: initialCwd, isActive: true }]);
-    }, [initialCwd, tabs.length]);
+    }, [initialCwd]);
 
     // Mount xterm when terminal tab is active
     const activeTabId = tabs.find(t => t.isActive)?.id;
@@ -428,19 +466,45 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
 
           {/* ── Terminal ── */}
           <div className="flex-1 min-w-0 overflow-hidden flex" style={{ display: activePanel === "terminal" ? "flex" : "none" }}>
-            {/* xterm area */}
-            <div className="flex-1 min-w-0 overflow-hidden" style={{ padding: "4px 0 0 4px" }}>
-              {tabs.map(tab => (
-                <div
-                  key={tab.id}
-                  id={`terminal-container-${tab.id}`}
-                  className={tab.isActive ? "h-full w-full block" : "hidden"}
-                />
-              ))}
-              {tabs.length === 0 && (
-                <div className="h-full flex items-center justify-center text-ide-text-secondary text-xs">
-                  No terminals open. Click <span className="mx-1 font-mono">+</span> to create one.
-                </div>
+            {/* Primary xterm area */}
+            <div className="flex-1 min-w-0 overflow-hidden flex">
+              <div className="flex-1 min-w-0 overflow-hidden" style={{ padding: "4px 0 0 4px" }}>
+                {tabs.filter(t => !t.isSplit || t.isActive).map(tab => (
+                  <div
+                    key={tab.id}
+                    id={`terminal-container-${tab.id}`}
+                    className={tab.isActive && !splitTerminalId ? "h-full w-full block" : (tab.isActive && splitTerminalId ? "h-full w-full block" : "hidden")}
+                  />
+                ))}
+                {tabs.length === 0 && (
+                  <div className="h-full flex items-center justify-center text-ide-text-secondary text-xs">
+                    No terminals open. Click <span className="mx-1 font-mono">+</span> to create one.
+                  </div>
+                )}
+              </div>
+
+              {/* Split pane */}
+              {splitTerminalId && (
+                <>
+                  <div className="w-px bg-ide-border flex-shrink-0" />
+                  <div className="flex-1 min-w-0 overflow-hidden relative" style={{ padding: "4px 0 0 4px" }}>
+                    <div
+                      id={`terminal-container-${splitTerminalId}`}
+                      className="h-full w-full block"
+                    />
+                    <button
+                      onClick={() => {
+                        destroySession(splitTerminalId);
+                        setTabs(prev => prev.filter(t => t.id !== splitTerminalId));
+                        setSplitTerminalId(null);
+                      }}
+                      className="absolute top-1 right-2 text-ide-text-secondary hover:text-red-400 transition-colors z-10"
+                      title="Close split pane"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </>
               )}
             </div>
 

@@ -7,10 +7,19 @@ import TerminalPanel, { TerminalPanelHandle } from "@/react-app/components/ide/T
 import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog";
 import SettingsView from "@/react-app/components/ide/SettingsView";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
-import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
+import { useIdeCommandListener, useIdeCommand } from "@/react-app/contexts/IdeCommandContext";
 import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab } from "@/react-app/types/ide";
 import { createFile, updateFile, deleteFile } from "@/services/api";
 import { buildTreeFromFiles } from "@/utils/fileSystemHelper";
+import SearchModal from "@/react-app/components/ide/SearchModal";
+import ReplaceModal from "@/react-app/components/ide/ReplaceModal";
+import StatusBar from "@/react-app/components/ide/StatusBar";
+import WelcomePage from "@/react-app/components/ide/WelcomePage";
+import ReleaseNotesPage from "@/react-app/components/ide/ReleaseNotesPage";
+import KeyboardShortcutsModal from "@/react-app/components/ide/KeyboardShortcutsModal";
+import DebugToolbar from "@/react-app/components/ide/DebugToolbar";
+import CommandPalette from "@/react-app/components/ide/CommandPalette";
+import { debugService } from "@/services/debugService";
 import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
 import { commandService } from "@/services/commandService";
@@ -47,6 +56,7 @@ const getLanguage = (filename: string): string => {
 
 export default function HomePage() {
   const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
+  const { dispatchCommand } = useIdeCommand();
   const fallbackFileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -61,6 +71,31 @@ export default function HomePage() {
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [chatPanelWidth, setChatPanelWidth] = useState(320);
   const [resizingPanel, setResizingPanel] = useState<"sidebar" | "chat" | null>(null);
+
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [replaceModalOpen, setReplaceModalOpen] = useState(false);
+  const [showWelcomePage, setShowWelcomePage] = useState(false);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [showKbShortcuts, setShowKbShortcuts] = useState(false);
+  // Navigation History for GO > Back/Forward
+  const navHistoryRef = useRef<string[]>([]);
+  const navHistoryIndexRef = useRef<number>(-1);
+  const lastEditLocationRef = useRef<{ fileId: string; line: number } | null>(null);
+  // Debug state
+  const [debugActive, setDebugActive] = useState(false);
+  const [debugPaused, setDebugPaused] = useState(false);
+  const [statusBarLine, setStatusBarLine] = useState(1);
+  const [statusBarCol, setStatusBarCol] = useState(1);
+  const [isBackendConnected, setIsBackendConnected] = useState(true);
+
+  // Check backend connectivity
+  useEffect(() => {
+    const check = () => fetch("http://localhost:8082/health").then(() => setIsBackendConnected(true)).catch(() => setIsBackendConnected(false));
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
 
   useEffect(() => {
     if (!resizingPanel) return;
@@ -115,26 +150,26 @@ export default function HomePage() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | undefined>(undefined);
   // Tracks the very first project path — passed as initialCwd to TerminalPanel once
   const [initialTerminalCwd, setInitialTerminalCwd] = useState<string | undefined>(undefined);
+  console.log("[Home] Rendered with initialTerminalCwd:", initialTerminalCwd);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
 
-  useIdeCommandListener("view.explorer", () => setSidebarTab("explorer"));
-  useIdeCommandListener("view.search", () => {
-    setSidebarTab("search");
-    setSidebarCollapsed(false);
-  });
-  useIdeCommandListener("view.extensions", () => {
-    setSidebarTab("extensions");
-    setSidebarCollapsed(false);
-  });
-  useIdeCommandListener("view.scm", () => {
-    setSidebarTab("git");
-    setSidebarCollapsed(false);
-  });
-  useIdeCommandListener("view.debug", () => {
-    setSidebarTab("debug");
-    setSidebarCollapsed(false);
-  });
+  const toggleSidebarTab = useCallback((tab: SidebarTab) => {
+    if (sidebarTab === tab) {
+      setSidebarCollapsed((prev) => !prev);
+    } else {
+      setSidebarTab(tab);
+      setSidebarCollapsed(false);
+    }
+  }, [sidebarTab]);
+
+  useIdeCommandListener("view.explorer", () => toggleSidebarTab("explorer"));
+  useIdeCommandListener("view.search", () => toggleSidebarTab("search"));
+  useIdeCommandListener("view.extensions", () => toggleSidebarTab("extensions"));
+  useIdeCommandListener("view.scm", () => toggleSidebarTab("git"));
+  useIdeCommandListener("view.debug", () => toggleSidebarTab("debug"));
+
+  useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
 
 
   // Ref to the terminal panel — used to imperatively cd when a project is opened
@@ -248,8 +283,13 @@ export default function HomePage() {
 
   const handleTabSelect = useCallback((tabId: string) => {
     setActiveFileId(tabId);
-    setTabs((prev) => prev.map((t) => ({ ...t, isActive: t.id === tabId })));
-  }, []);
+    setTabs((prev) => {
+      // Push to navigation history
+      navHistoryRef.current = [...navHistoryRef.current.slice(0, navHistoryIndexRef.current + 1), tabId];
+      navHistoryIndexRef.current = navHistoryRef.current.length - 1;
+      return prev.map((t) => ({ ...t, isActive: t.id === tabId }));
+    });
+  }, [navHistoryRef, navHistoryIndexRef]);
 
   const handleTabClose = useCallback((tabId: string) => {
     setTabs((prev) => {
@@ -265,6 +305,9 @@ export default function HomePage() {
   }, []);
 
   const handleContentChange = useCallback((tabId: string, content: string) => {
+    // Track last edit location for go.lastEditLocation
+    const lineCount = content.split('\n').length;
+    lastEditLocationRef.current = { fileId: tabId, line: lineCount };
     setTabs((prev) =>
       prev.map((t) =>
         t.id === tabId ? { ...t, content, isDirty: true } : t
@@ -639,6 +682,12 @@ export default function HomePage() {
     const activeTab = tabs.find(t => t.isActive);
     if (!activeTab || !activeTab.isDirty) return;
 
+    // If it's an untitled file (no path and not in a remote project), route to Save As
+    if (!activeTab.path && !activeProjectId) {
+      dispatchCommand("file.saveAs");
+      return;
+    }
+
     let contentToSave = activeTab.content;
     try {
       const res = await eventService.fileSave({
@@ -670,6 +719,9 @@ export default function HomePage() {
 
   const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSelectionChange = useCallback((payload: any) => {
+    // Update status bar cursor position
+    if (payload?.startLine !== undefined) setStatusBarLine(payload.startLine);
+    if (payload?.startLine !== undefined) setStatusBarCol(1); // Monaco col tracking
     if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
     selectionDebounceRef.current = setTimeout(() => {
       eventService.selectionChange(payload).catch(() => { });
@@ -714,8 +766,78 @@ export default function HomePage() {
           }
         }
         break;
+      case "delete_file":
+        if (action.path) {
+          try {
+            await fsService.deleteItem(action.path);
+            setFiles(prev => prev.filter(f => f.path !== action.path && f.id !== `fs-${action.path}`));
+            setTabs(prev => prev.filter(t => t.path !== action.path));
+          } catch (e) {
+            console.error("Failed to delete file", e);
+          }
+        }
+        break;
+      case "rename_file":
+        if (action.path && action.newPath) {
+          try {
+            const content = await fsService.readFile(action.path);
+            await fsService.writeFile(action.newPath, content);
+            await fsService.deleteItem(action.path);
+            const newName = action.newPath.split(/[/\\]/).pop() || action.newPath;
+            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, path: action.newPath, name: newName, id: `fs-${action.newPath}` } : t));
+            setFiles(prev => prev.map(f => f.path === action.path ? { ...f, path: action.newPath, name: newName, id: `fs-${action.newPath}` } : f));
+          } catch (e) {
+            console.error("Failed to rename file", e);
+          }
+        }
+        break;
+      case "insert_at_line":
+        if (action.path && action.content !== undefined && action.line !== undefined) {
+          try {
+            const existing = await fsService.readFile(action.path);
+            const lines = existing.split('\n');
+            lines.splice(action.line, 0, action.content);
+            const updated = lines.join('\n');
+            await fsService.writeFile(action.path, updated);
+            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: updated, isDirty: true } : t));
+          } catch (e) {
+            console.error("Failed to insert at line", e);
+          }
+        }
+        break;
+      case "replace_range":
+        if (action.path && action.content !== undefined && action.fromLine !== undefined && action.toLine !== undefined) {
+          try {
+            const existing = await fsService.readFile(action.path);
+            const lines = existing.split('\n');
+            lines.splice(action.fromLine - 1, action.toLine - action.fromLine + 1, action.content);
+            const updated = lines.join('\n');
+            await fsService.writeFile(action.path, updated);
+            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: updated, isDirty: true } : t));
+          } catch (e) {
+            console.error("Failed to replace_range", e);
+          }
+        }
+        break;
+      case "read_file":
+        if (action.path) {
+          try {
+            const content = await fsService.readFile(action.path);
+            // Inject file content as a new assistant message for context
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(),
+              role: "assistant",
+              content: `📄 **File content: \`${action.path}\`**\n\`\`\`\n${content}\n\`\`\``,
+              timestamp: new Date(),
+            }]);
+          } catch (e) {
+            console.error("Failed to read file for context", e);
+          }
+        }
+        break;
     }
   }, [terminalRef, setTerminalVisible, findAndUpdateFile]);
+
 
   // Track Recent Workspaces & Persist Last Active
   useEffect(() => {
@@ -737,19 +859,161 @@ export default function HomePage() {
   }, [activeProjectPath]);
 
   // --- IDE Command Listeners ---
-  useIdeCommandListener("view.explorer", () => setSidebarCollapsed((prev) => !prev));
+  useIdeCommandListener("go.switchEditor", () => {
+    setTabs(prev => {
+      if (prev.length <= 1) return prev;
+      const activeIdx = prev.findIndex(t => t.isActive);
+      const nextIdx = (activeIdx + 1) % prev.length;
+      return prev.map((t, i) => ({ ...t, isActive: i === nextIdx }));
+    });
+  });
+  useIdeCommandListener("go.switchGroup", () => {
+    // Cycle to the next open tab (simulates group switching)
+    setTabs(prev => {
+      if (prev.length <= 1) return prev;
+      const activeIdx = prev.findIndex(t => t.isActive);
+      const nextIdx = (activeIdx + 1) % prev.length;
+      const next = prev[nextIdx];
+      // Push to nav history
+      navHistoryRef.current = [...navHistoryRef.current.slice(0, navHistoryIndexRef.current + 1), next.id];
+      navHistoryIndexRef.current++;
+      return prev.map((t, i) => ({ ...t, isActive: i === nextIdx }));
+    });
+  });
+  useIdeCommandListener("go.back", () => {
+    if (navHistoryIndexRef.current <= 0) return;
+    navHistoryIndexRef.current--;
+    const targetId = navHistoryRef.current[navHistoryIndexRef.current];
+    if (targetId) setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === targetId })));
+  });
+  useIdeCommandListener("go.forward", () => {
+    if (navHistoryIndexRef.current >= navHistoryRef.current.length - 1) return;
+    navHistoryIndexRef.current++;
+    const targetId = navHistoryRef.current[navHistoryIndexRef.current];
+    if (targetId) setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === targetId })));
+  });
+  useIdeCommandListener("go.lastEditLocation", () => {
+    const loc = lastEditLocationRef.current;
+    if (!loc) { alert("No recent edits tracked yet."); return; }
+    setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === loc.fileId })));
+    // Tell Monaco to scroll to that line
+    setTimeout(() => {
+      document.dispatchEvent(new CustomEvent('ide:gotoLine', { detail: { line: loc.line } }));
+    }, 100);
+  });
+
+  useIdeCommandListener("run.startDebugging", async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab?.path) { alert("Please open a file to debug first."); return; }
+    const lang = activeTab.language || getLanguage(activeTab.name);
+    setDebugActive(true);
+    setDebugPaused(false);
+    const unsub = debugService.onEvent(ev => {
+      if (ev.type === 'stopped') setDebugPaused(true);
+      if (ev.type === 'continued') setDebugPaused(false);
+      if (ev.type === 'terminated') { setDebugActive(false); setDebugPaused(false); unsub(); }
+      if (ev.type === 'error') { alert(`Debug error: ${ev.message}`); setDebugActive(false); unsub(); }
+    });
+    await debugService.launch({ language: lang, filePath: activeTab.path });
+    toggleSidebarTab("debug");
+  });
+  useIdeCommandListener("run.runWithoutDebugging", () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab?.path) return;
+    terminalRef.current?.executeCommand(`node "${activeTab.path}"`);
+    setTerminalVisible(true);
+  });
+  useIdeCommandListener("run.stopDebugging", () => { debugService.disconnect(); setDebugActive(false); setDebugPaused(false); });
+  useIdeCommandListener("run.restartDebugging", async () => {
+    debugService.disconnect();
+    setDebugActive(false);
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab?.path) return;
+    setTimeout(() => {
+      const lang = activeTab.language || getLanguage(activeTab.name);
+      debugService.launch({ language: lang, filePath: activeTab.path! });
+      setDebugActive(true);
+    }, 500);
+  });
+  useIdeCommandListener("run.openConfigurations", () => alert("launch.json configurations coming soon"));
+  useIdeCommandListener("run.addConfiguration", () => alert("Add Configuration coming soon"));
+  useIdeCommandListener("run.stepOver", () => { debugService.stepOver(); setDebugPaused(false); });
+  useIdeCommandListener("run.stepInto", () => { debugService.stepInto(); setDebugPaused(false); });
+  useIdeCommandListener("run.stepOut", () => { debugService.stepOut(); setDebugPaused(false); });
+  useIdeCommandListener("run.continue", () => { debugService.continue(); setDebugPaused(false); });
+  useIdeCommandListener("run.toggleBreakpoint", () => alert("Click gutter in Monaco editor to set breakpoints."));
+  useIdeCommandListener("run.addConditionalBreakpoint", () => alert("Conditional breakpoints coming soon."));
+  useIdeCommandListener("run.enableAllBreakpoints", () => alert("Enable All Breakpoints coming soon"));
+  useIdeCommandListener("run.disableAllBreakpoints", () => alert("Disable All Breakpoints coming soon"));
+  useIdeCommandListener("run.removeAllBreakpoints", () => alert("Remove All Breakpoints coming soon"));
+  useIdeCommandListener("run.installDebuggers", () => alert("Install Debuggers coming soon"));
+
   useIdeCommandListener("view.terminal", () => setTerminalVisible((prev) => !prev));
   useIdeCommandListener("view.toggleAiChat", () => setAiChatVisible((prev) => !prev));
   useIdeCommandListener("terminal.newTerminal", () => setTerminalVisible(true));
   useIdeCommandListener("terminal.newWithProfile", (profile: string) => {
     setTerminalVisible(true);
-    // Let TerminalPanel handle the creation using the requested profile
     if (terminalRef.current) {
       terminalRef.current.openTerminalWithProfile(activeProjectPath || "C:\\", profile);
     }
   });
+  useIdeCommandListener("terminal.splitTerminal", () => {
+    setTerminalVisible(true);
+    if (terminalRef.current) terminalRef.current.splitTerminal();
+  });
+  useIdeCommandListener("terminal.killTerminal", () => {
+    if (terminalRef.current) terminalRef.current.killActiveTerminal();
+  });
+  useIdeCommandListener("terminal.clearTerminal", () => {
+    if (terminalRef.current) terminalRef.current.clearActiveTerminal();
+  });
+  useIdeCommandListener("terminal.runTask", () => {
+    setTerminalVisible(true);
+    if (terminalRef.current) terminalRef.current.executeCommand("npm run "); // prepopulate
+  });
+  useIdeCommandListener("terminal.runActiveFile", () => {
+    setTerminalVisible(true);
+    const activeTab = tabs.find(t => t.isActive);
+    if (activeTab && activeTab.path) {
+      const lowerName = activeTab.name.toLowerCase();
+      if (lowerName.endsWith('.js') || lowerName.endsWith('.ts')) {
+        terminalRef.current?.executeCommand(`node "${activeTab.path}"`);
+      } else if (lowerName.endsWith('.py')) {
+        terminalRef.current?.executeCommand(`python "${activeTab.path}"`);
+      } else {
+        alert("Cannot determine execution runtime for " + activeTab.name);
+      }
+    } else {
+      alert("No active file with a saved path to run.");
+    }
+  });
   useIdeCommandListener("file.newFile", () => handleNewFile("root"));
-  useIdeCommandListener("file.newTextFile", () => handleNewFile("root"));
+  useIdeCommandListener("file.newTextFile", () => {
+    setTabs(prev => {
+      // Find the highest untitled number
+      const untitledNumbers = prev
+        .filter(t => t.id.startsWith("untitled-"))
+        .map(t => parseInt(t.id.replace("untitled-", ""), 10))
+        .filter(n => !isNaN(n));
+      const nextNum = untitledNumbers.length > 0 ? Math.max(...untitledNumbers) + 1 : 1;
+
+      const newTabId = `untitled-${nextNum}`;
+      const newTabName = `Untitled-${nextNum}`;
+      setActiveFileId(newTabId);
+
+      return [
+        ...prev.map(t => ({ ...t, isActive: false })),
+        {
+          id: newTabId,
+          name: newTabName,
+          language: "plaintext",
+          content: "",
+          isActive: true,
+          isDirty: true, // Mark as dirty immediately so it can be saved
+        }
+      ];
+    });
+  });
   useIdeCommandListener("file.openFolder", async () => {
     try {
       const resp = await fetch("http://localhost:8082/pick-folder");
@@ -764,8 +1028,10 @@ export default function HomePage() {
   });
 
   async function openWorkspacePath(path: string) {
+    console.log("[Home] openWorkspacePath called with path:", path);
     try {
       const info = await fsService.checkExists(path);
+      console.log("[Home] fsService.checkExists returned:", info);
       if (info.exists && info.isDirectory) {
         setFiles([{
           id: `root-${Date.now()}`,
@@ -779,12 +1045,11 @@ export default function HomePage() {
         setActiveFileId(null);
         setActiveProjectPath(path);
         setInitialTerminalCwd(path);
+        console.log("[Home] SUCCESS opening workspace. Path:", path, "initialTerminalCwd set to:", path);
         // Register on backend so terminal + project detector know the workspace
         openBackendWorkspace(path).catch(() => { });
         // Open a NEW terminal tab for this workspace and clear old ones
-        if (initialTerminalCwd) {
-          terminalRef.current?.resetForNewWorkspace(path);
-        }
+        terminalRef.current?.resetForNewWorkspace(path);
         setTerminalVisible(true);
 
       } else {
@@ -860,10 +1125,29 @@ export default function HomePage() {
     setSettingsTab("extensions");
     setIsSettingsOpen(true);
   });
+
+  // -- Help Menu Actions --
+  useIdeCommandListener("help.documentation", () => window.open("https://code.visualstudio.com/docs", "_blank"));
+  useIdeCommandListener("help.welcome", () => setShowWelcomePage(true));
+  useIdeCommandListener("help.releaseNotes", () => setShowReleaseNotes(true));
+  useIdeCommandListener("help.keyboardShortcuts", () => setShowKbShortcuts(true));
+  useIdeCommandListener("help.videoTutorials", () => window.open("https://code.visualstudio.com/docs/getstarted/introvideos", "_blank"));
+  useIdeCommandListener("help.reportIssue", () => window.open("https://github.com/microsoft/vscode/issues/new/choose", "_blank"));
+  useIdeCommandListener("help.searchFeatureRequests", () => window.open("https://github.com/microsoft/vscode/issues", "_blank"));
+  useIdeCommandListener("help.viewLicense", () => alert("MIT License"));
+  useIdeCommandListener("help.privacyStatement", () => window.open("https://privacy.microsoft.com/en-us/privacystatement", "_blank"));
+  useIdeCommandListener("help.toggleDevTools", () => alert("Press F12 to open Developer Tools in your browser."));
   useIdeCommandListener("help.about", () => {
     setSettingsTab("application.updates");
     setIsSettingsOpen(true);
+    alert("Ollama IDE v1.0.0\nArchitecture: Web Client (React) + Node.js Backend\nLocal AI Code Editor");
   });
+  useIdeCommandListener("help.showCommands", () => dispatchCommand("view.commandPalette"));
+  useIdeCommandListener("help.playground", () => alert("Interactive Playground coming soon."));
+  useIdeCommandListener("help.walkthrough", () => alert("Walkthroughs coming soon."));
+  useIdeCommandListener("help.processExplorer", () => alert("Process Explorer coming soon."));
+  useIdeCommandListener("help.checkUpdates", () => alert("You are on the latest version!"));
+
   useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
   useIdeCommandListener("file.closeEditor", () => {
     if (activeFileId) handleTabClose(activeFileId);
@@ -908,6 +1192,38 @@ export default function HomePage() {
           console.error("Failed to save file", e);
         }
       }
+    }
+  });
+
+  useIdeCommandListener("file.revertFile", async () => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab || !activeTab.isDirty) return;
+
+    if (activeTab.path) {
+      try {
+        const originalContent = await fsService.readFile(activeTab.path);
+        setTabs(prev => prev.map(t =>
+          t.id === activeTab.id ? { ...t, content: originalContent, isDirty: false } : t
+        ));
+      } catch (e) {
+        console.error("Failed to revert file", e);
+      }
+    }
+  });
+
+  useIdeCommandListener("edit.findInFiles", () => {
+    if (activeProjectPath) {
+      setSearchModalOpen(true);
+    } else {
+      alert("Please open a project folder first to search files.");
+    }
+  });
+
+  useIdeCommandListener("edit.replaceInFiles", () => {
+    if (activeProjectPath) {
+      setReplaceModalOpen(true);
+    } else {
+      alert("Please open a project folder first to use Replace in Files.");
     }
   });
 
@@ -1062,6 +1378,64 @@ export default function HomePage() {
             onContentChange={handleContentChange}
             onSelectionChange={handleSelectionChange}
           />
+          {/* Debug Toolbar overlay */}
+          {debugActive && (
+            <div className="absolute top-0 left-0 right-0 z-30 flex justify-center pointer-events-none" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
+              <div className="pointer-events-auto">
+                <DebugToolbar
+                  isActive={debugActive}
+                  isPaused={debugPaused}
+                  onContinue={() => { debugService.continue(); setDebugPaused(false); }}
+                  onStepOver={() => { debugService.stepOver(); setDebugPaused(false); }}
+                  onStepInto={() => { debugService.stepInto(); setDebugPaused(false); }}
+                  onStepOut={() => { debugService.stepOut(); setDebugPaused(false); }}
+                  onPause={() => debugService.pause()}
+                  onStop={() => { debugService.disconnect(); setDebugActive(false); setDebugPaused(false); }}
+                  onRestart={() => {
+                    debugService.disconnect();
+                    setDebugActive(false);
+                    const activeTab = tabs.find(t => t.isActive);
+                    if (activeTab?.path) {
+                      setTimeout(() => {
+                        debugService.launch({ language: activeTab.language || getLanguage(activeTab.name), filePath: activeTab.path! });
+                        setDebugActive(true);
+                      }, 500);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {/* Welcome Page overlay */}
+          {showWelcomePage && (
+            <div className="absolute inset-0 z-20 flex ml-[var(--sidebar-w,256px)]" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
+              <div className="flex-1 relative">
+                <button
+                  onClick={() => setShowWelcomePage(false)}
+                  className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
+                >✕ Close</button>
+                <WelcomePage
+                  recentWorkspaces={JSON.parse(localStorage.getItem('ide-recent-workspaces') || '[]')}
+                  onOpenFolder={() => { setShowWelcomePage(false); dispatchCommand('file.openFolder'); }}
+                  onNewFile={() => { setShowWelcomePage(false); dispatchCommand('file.newTextFile'); }}
+                  onOpenFile={async (path) => { setShowWelcomePage(false); await openWorkspacePath(path); }}
+                  onOpenCommandPalette={() => { setShowWelcomePage(false); dispatchCommand('view.commandPalette'); }}
+                />
+              </div>
+            </div>
+          )}
+          {/* Release Notes overlay */}
+          {showReleaseNotes && (
+            <div className="absolute inset-0 z-20 flex" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
+              <div className="flex-1 relative">
+                <button
+                  onClick={() => setShowReleaseNotes(false)}
+                  className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
+                >✕ Close</button>
+                <ReleaseNotesPage />
+              </div>
+            </div>
+          )}
           {aiChatVisible && (
             <>
               <div
@@ -1093,8 +1467,15 @@ export default function HomePage() {
           onHeightChange={setTerminalHeight}
           initialCwd={initialTerminalCwd}
         />
-
       </div>
+      {/* Status Bar */}
+      <StatusBar
+        language={tabs.find(t => t.isActive)?.language || getLanguage(tabs.find(t => t.isActive)?.name || '')}
+        line={statusBarLine}
+        column={statusBarCol}
+        isDirty={tabs.find(t => t.isActive)?.isDirty || false}
+        isConnected={isBackendConnected}
+      />
       <FileOperationDialog
         open={dialogState.open}
         onOpenChange={(open) => setDialogState((prev) => ({ ...prev, open }))}
@@ -1102,6 +1483,36 @@ export default function HomePage() {
         initialValue={dialogState.mode === "rename" ? dialogState.item?.name : ""}
         itemName={dialogState.item?.name}
         onConfirm={handleDialogConfirm}
+      />
+      {activeProjectPath && (
+        <SearchModal
+          isOpen={searchModalOpen}
+          onClose={() => setSearchModalOpen(false)}
+          rootPath={activeProjectPath}
+          onOpenFile={async (path, _line) => {
+            await handleFileSelect({ path, type: 'file', id: path, name: path.split(/[/\\]/).pop() || 'Unknown' });
+          }}
+        />
+      )}
+      {activeProjectPath && (
+        <ReplaceModal
+          isOpen={replaceModalOpen}
+          onClose={() => setReplaceModalOpen(false)}
+          rootPath={activeProjectPath}
+          onOpenFile={async (path, _line) => {
+            await handleFileSelect({ path, type: 'file', id: path, name: path.split(/[/\\]/).pop() || 'Unknown' });
+          }}
+        />
+      )}
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={showKbShortcuts}
+        onClose={() => setShowKbShortcuts(false)}
+      />
+      <CommandPalette
+        files={files}
+        onOpenFile={handleFileSelect}
       />
     </div>
   );

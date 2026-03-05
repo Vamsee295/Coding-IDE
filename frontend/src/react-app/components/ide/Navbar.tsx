@@ -134,7 +134,7 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 { type: "item", label: `Auto Save ${settings.autoSave ? "✓" : ""}`, commandId: "file.autoSave" },
                 { type: "item", label: "Preferences", commandId: "file.preferences" },
                 { type: "separator" },
-                { type: "item", label: "Revert File" },
+                { type: "item", label: "Revert File", commandId: "file.revertFile" },
                 { type: "item", label: "Close Editor", shortcut: "Ctrl+F4", commandId: "file.closeEditor" },
                 { type: "item", label: "Close Folder", shortcut: "Ctrl+K F", commandId: "file.closeFolder" },
                 { type: "item", label: "Close Window", shortcut: "Alt+F4", commandId: "file.closeWindow" },
@@ -175,10 +175,10 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 { type: "item", label: "Move Line Down", shortcut: "Alt+DownArrow", commandId: "selection.moveLineDown" },
                 { type: "item", label: "Duplicate Selection", commandId: "selection.duplicateSelection" },
                 { type: "separator" },
-                { type: "item", label: "Add Cursor Above", shortcut: "Ctrl+Alt+UpArrow" },
-                { type: "item", label: "Add Cursor Below", shortcut: "Ctrl+Alt+DownArrow" },
-                { type: "item", label: "Add Cursors to Line Ends", shortcut: "Shift+Alt+I" },
-                { type: "item", label: "Add Next Occurrence", shortcut: "Ctrl+D" }
+                { type: "item", label: "Add Cursor Above", shortcut: "Ctrl+Alt+UpArrow", commandId: "selection.addCursorAbove" },
+                { type: "item", label: "Add Cursor Below", shortcut: "Ctrl+Alt+DownArrow", commandId: "selection.addCursorBelow" },
+                { type: "item", label: "Add Cursors to Line Ends", shortcut: "Shift+Alt+I", commandId: "selection.addCursorsToLineEnds" },
+                { type: "item", label: "Add Next Occurrence", shortcut: "Ctrl+D", commandId: "selection.addNextOccurrence" }
             ]
         },
         {
@@ -199,13 +199,31 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
         {
             name: "Go",
             items: [
+                { type: "item", label: "Back", shortcut: "Alt+LeftArrow", commandId: "go.back" },
+                { type: "item", label: "Forward", shortcut: "Alt+RightArrow", commandId: "go.forward" },
+                { type: "item", label: "Last Edit Location", shortcut: "Ctrl+K Ctrl+Q", commandId: "go.lastEditLocation" },
+                { type: "separator" },
+                { type: "item", label: "Switch Editor", shortcut: "Ctrl+Tab", commandId: "go.switchEditor" },
+                { type: "item", label: "Switch Group", shortcut: "Ctrl+1", commandId: "go.switchGroup" },
+                { type: "separator" },
                 { type: "item", label: "Go to File...", shortcut: "Ctrl+P", commandId: "go.goToFile" },
-                { type: "item", label: "Go to Symbol in Workspace...", shortcut: "Ctrl+T", commandId: "go.goToSymbol" },
-                { type: "item", label: "Go to Symbol in Editor...", shortcut: "Ctrl+Shift+O", commandId: "go.goToSymbol" },
+                { type: "item", label: "Go to Symbol in Workspace...", shortcut: "Ctrl+T", commandId: "go.goToSymbolInWorkspace" },
+                { type: "item", label: "Go to Symbol in Editor...", shortcut: "Ctrl+Shift+O", commandId: "go.goToSymbolInEditor" },
                 { type: "separator" },
                 { type: "item", label: "Go to Definition", shortcut: "F12", commandId: "go.goToDefinition" },
+                { type: "item", label: "Go to Declaration", commandId: "go.goToDeclaration" },
+                { type: "item", label: "Go to Type Definition", commandId: "go.goToTypeDefinition" },
+                { type: "item", label: "Go to Implementation", shortcut: "Ctrl+F12", commandId: "go.goToImplementation" },
+                { type: "item", label: "Go to References", shortcut: "Shift+F12", commandId: "go.goToReferences" },
                 { type: "separator" },
-                { type: "item", label: "Go to Line/Column...", shortcut: "Ctrl+G", commandId: "go.goToLine" }
+                { type: "item", label: "Go to Line/Column...", shortcut: "Ctrl+G", commandId: "go.goToLine" },
+                { type: "item", label: "Go to Bracket", shortcut: "Ctrl+Shift+\\", commandId: "go.goToBracket" },
+                { type: "separator" },
+                { type: "item", label: "Next Problem", shortcut: "F8", commandId: "go.nextProblem" },
+                { type: "item", label: "Previous Problem", shortcut: "Shift+F8", commandId: "go.previousProblem" },
+                { type: "separator" },
+                { type: "item", label: "Next Change", shortcut: "Alt+F3", commandId: "go.nextChange" },
+                { type: "item", label: "Previous Change", shortcut: "Shift+Alt+F3", commandId: "go.previousChange" }
             ]
         },
         {
@@ -225,7 +243,7 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 { type: "item", label: "Continue", shortcut: "F5", commandId: "run.continue", disabled: true },
                 { type: "separator" },
                 { type: "item", label: "Toggle Breakpoint", shortcut: "F9", commandId: "run.toggleBreakpoint" },
-                { type: "submenu", label: "New Breakpoint", items: [] },
+                { type: "item", label: "Add Conditional Breakpoint...", commandId: "run.addConditionalBreakpoint" },
                 { type: "separator" },
                 { type: "item", label: "Enable All Breakpoints", commandId: "run.enableAllBreakpoints" },
                 { type: "item", label: "Disable All Breakpoints", commandId: "run.disableAllBreakpoints" },
@@ -268,6 +286,9 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 },
                 { type: "submenu", label: "Split Terminal with Profile", items: [] },
                 { type: "separator" },
+                { type: "item", label: "Kill Terminal", commandId: "terminal.killTerminal" },
+                { type: "item", label: "Clear Terminal", commandId: "terminal.clearTerminal" },
+                { type: "separator" },
                 {
                     type: "item",
                     label: "Configure Terminal Settings",
@@ -279,11 +300,8 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                     onClick: () => alert("Select Default Profile coming soon!")
                 },
                 { type: "separator" },
-                {
-                    type: "item",
-                    label: "Run Task...",
-                    onClick: () => dispatchCommand("terminal.runTask")
-                },
+                { type: "item", label: "Run Task...", commandId: "terminal.runTask" },
+                { type: "item", label: "Run Active File", commandId: "terminal.runActiveFile" },
                 {
                     type: "item",
                     label: "Configure Tasks...",
@@ -294,12 +312,17 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
         {
             name: "Help",
             items: [
-                { type: "item", label: "Welcome", commandId: "help.welcome" },
-                { type: "item", label: "Show All Commands", shortcut: "Ctrl+Shift+P", commandId: "help.showCommands" },
-                { type: "item", label: "Editor Playground", commandId: "help.playground" },
-                { type: "item", label: "Open Walkthrough...", commandId: "help.walkthrough" },
+                { type: "item", label: "Documentation", commandId: "help.documentation" },
+                { type: "item", label: "Show Welcome Page", commandId: "help.welcome" },
+                { type: "item", label: "Show Release Notes", commandId: "help.releaseNotes" },
+                { type: "item", label: "Keyboard Shortcuts Reference", commandId: "help.keyboardShortcuts" },
+                { type: "item", label: "Video Tutorials", commandId: "help.videoTutorials" },
+                { type: "separator" },
+                { type: "item", label: "Report Issue", commandId: "help.reportIssue" },
+                { type: "item", label: "Search Feature Requests", commandId: "help.searchFeatureRequests" },
                 { type: "separator" },
                 { type: "item", label: "View License", commandId: "help.viewLicense" },
+                { type: "item", label: "Privacy Statement", commandId: "help.privacyStatement" },
                 { type: "separator" },
                 { type: "item", label: "Toggle Developer Tools", commandId: "help.toggleDevTools" },
                 { type: "item", label: "Open Process Explorer", commandId: "help.processExplorer" },

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
     X, Search, Download, Check, CheckCheck, Loader2,
-    Package, FolderOpen, AlertCircle, Puzzle
+    Package, AlertCircle, Puzzle
 } from 'lucide-react';
 import { VSCodeExtension } from '@/types/extension';
 import { Button } from '@/react-app/components/ui/button';
@@ -24,7 +24,6 @@ export default function ImportVSCodeModal({ isOpen, onClose, onImported }: Impor
     const [searchQuery, setSearchQuery] = useState('');
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [vscodePath, setVscodePath] = useState('');
-    const [importedCount, setImportedCount] = useState(0);
     const [toast, setToast] = useState<string | null>(null);
 
     const scanExtensions = useCallback(async () => {
@@ -97,8 +96,8 @@ export default function ImportVSCodeModal({ isOpen, onClose, onImported }: Impor
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ids: [...selected] }),
             });
-            const data = await res.json();
-            setImportedCount(data.count || 0);
+            await res.json();
+            // setImportedCount removed
             setToast(`✅ Imported ${selected.size} extension(s) successfully!`);
             setSelected(new Set());
             onImported();

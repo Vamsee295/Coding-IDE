@@ -1,7 +1,9 @@
 import { createContext, useContext, ReactNode, useCallback, useEffect, useRef } from "react";
+import { defaultKeymap } from "./keymap";
 
 // Known command IDs based on the reference UI
 export type IdeCommandId =
+    // File Menu Commands
     | "file.newTextFile"
     | "file.newFile"
     | "file.newWindow"
@@ -17,10 +19,13 @@ export type IdeCommandId =
     | "file.saveAll"
     | "file.autoSave"
     | "file.preferences"
+    | "file.revertFile"
     | "file.closeEditor"
     | "file.closeFolder"
     | "file.closeWindow"
     | "file.exit"
+
+    // Edit Menu Commands
     | "edit.undo"
     | "edit.redo"
     | "edit.cut"
@@ -32,6 +37,8 @@ export type IdeCommandId =
     | "edit.replaceInFiles"
     | "edit.toggleLineComment"
     | "edit.toggleBlockComment"
+
+    // Selection Menu Commands
     | "selection.selectAll"
     | "selection.expandSelection"
     | "selection.shrinkSelection"
@@ -40,6 +47,12 @@ export type IdeCommandId =
     | "selection.moveLineUp"
     | "selection.moveLineDown"
     | "selection.duplicateSelection"
+    | "selection.addCursorAbove"
+    | "selection.addCursorBelow"
+    | "selection.addCursorsToLineEnds"
+    | "selection.addNextOccurrence"
+
+    // View/Panel Commands
     | "view.commandPalette"
     | "view.explorer"
     | "view.search"
@@ -49,10 +62,29 @@ export type IdeCommandId =
     | "view.terminal"
     | "view.toggleAiChat"
     | "view.wordWrap"
+
+    // Go/Navigation Commands
+    | "go.back"
+    | "go.forward"
+    | "go.lastEditLocation"
+    | "go.switchEditor"
+    | "go.switchGroup"
     | "go.goToFile"
-    | "go.goToSymbol"
+    | "go.goToSymbolInWorkspace"
+    | "go.goToSymbolInEditor"
     | "go.goToDefinition"
+    | "go.goToDeclaration"
+    | "go.goToTypeDefinition"
+    | "go.goToImplementation"
+    | "go.goToReferences"
     | "go.goToLine"
+    | "go.goToBracket"
+    | "go.nextProblem"
+    | "go.previousProblem"
+    | "go.nextChange"
+    | "go.previousChange"
+
+    // Run/Debug Commands
     | "run.startDebugging"
     | "run.runWithoutDebugging"
     | "run.stopDebugging"
@@ -64,28 +96,42 @@ export type IdeCommandId =
     | "run.stepOut"
     | "run.continue"
     | "run.toggleBreakpoint"
+    | "run.addConditionalBreakpoint"
     | "run.enableAllBreakpoints"
     | "run.disableAllBreakpoints"
     | "run.removeAllBreakpoints"
     | "run.installDebuggers"
+
+    // Terminal Commands
     | "terminal.newTerminal"
     | "terminal.newWithProfile"
     | "terminal.splitTerminal"
     | "terminal.newTerminalWindow"
+    | "terminal.killTerminal"
+    | "terminal.clearTerminal"
     | "terminal.runTask"
     | "terminal.runBuildTask"
     | "terminal.runActiveFile"
     | "terminal.runSelectedText"
     | "terminal.configureTasks"
+
+    // Help Commands
+    | "help.documentation"
     | "help.welcome"
+    | "help.releaseNotes"
+    | "help.keyboardShortcuts"
+    | "help.videoTutorials"
+    | "help.reportIssue"
+    | "help.searchFeatureRequests"
+    | "help.viewLicense"
+    | "help.privacyStatement"
+    | "help.toggleDevTools"
+    | "help.about"
     | "help.showCommands"
     | "help.playground"
     | "help.walkthrough"
-    | "help.viewLicense"
-    | "help.toggleDevTools"
     | "help.processExplorer"
-    | "help.checkUpdates"
-    | "help.about";
+    | "help.checkUpdates";
 
 type CommandListener = (payload?: any) => void;
 
@@ -115,9 +161,40 @@ export function IdeCommandProvider({ children }: { children: ReactNode }) {
         if (listeners) {
             listeners.forEach((listener) => listener(payload));
         } else {
-            console.log(`[IDE Command] Unhandled command dispatched: ${commandId}`);
+            console.log(`[CommandRegistry] Unhandled command dispatched: ${commandId}`);
         }
     }, []);
+
+    // ------------------------------------------------------------------
+    // Keybinding Manager - intercepts global keydown events
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore keypresses inside input or textarea unless it is a generic shortcut
+
+            // Check against defaultKeymap array
+            for (const binding of defaultKeymap) {
+                const matchKey = binding.key.toLowerCase() === e.key.toLowerCase();
+                const matchCtrl = !!binding.ctrlKey === (e.ctrlKey || e.metaKey); // metaKey for Mac support
+                const matchShift = !!binding.shiftKey === e.shiftKey;
+                const matchAlt = !!binding.altKey === e.altKey;
+                // Allow exact match of modifiers
+
+                if (matchKey && matchCtrl && matchShift && matchAlt) {
+                    // Prevent default behavior (e.g., Ctrl+S saving the webpage)
+                    if (binding.preventDefault !== false) {
+                        e.preventDefault();
+                    }
+                    console.log(`[KeybindingManager] Matched ${e.key} -> Dispatching ${binding.commandId}`);
+                    dispatchCommand(binding.commandId);
+                    return; // Stop after first match
+                }
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [dispatchCommand]);
 
     return (
         <IdeCommandContext.Provider value={{ dispatchCommand, registerListener }}>

@@ -12,6 +12,7 @@
     "clsx": "^2.1.1",
     "hono": "^4.12.3",
     "lucide-react": "^0.510.0",
+    "puppeteer": "^24.38.0",
     "radix-ui": "^1.4.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",

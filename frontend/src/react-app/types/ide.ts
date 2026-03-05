@@ -11,11 +11,16 @@ export interface FileItem {
 }
 
 export interface AIAction {
-  type: "write_file" | "create_file" | "run_command";
+  type: "write_file" | "create_file" | "run_command" | "delete_file" | "rename_file" | "insert_at_line" | "replace_range" | "read_file";
   path?: string;
   content?: string;
   command?: string;
+  newPath?: string;      // for rename_file
+  line?: number;         // for insert_at_line
+  fromLine?: number;     // for replace_range
+  toLine?: number;       // for replace_range
 }
+
 
 export interface ChatMessage {
   id: string;

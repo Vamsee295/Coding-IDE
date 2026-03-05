@@ -43,10 +43,18 @@ function pushOutputLog(source, level, message) {
 // ── Socket.io Events ──────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
     console.log(`[Server] Socket connected: ${socket.id}`);
+
+    // Debug: log all incoming events
+    socket.onAny((eventName, ...args) => {
+        console.log(`[Server][Socket ${socket.id}] Event: ${eventName}`, args);
+    });
+
     pushOutputLog('IDE', 'info', `Editor session connected (${socket.id.slice(0, 8)})`);
 
     // ── TERMINAL: Create ──────────────────────────────────────────────────────
-    socket.on('create-terminal', ({ cwd, name, profile } = {}) => {
+    socket.on('create-terminal', (payload = {}) => {
+        const { cwd, name, profile } = payload;
+        console.log(`[Server] Received create-terminal event:`, payload);
         const terminalId = uuidv4();
         const workingDir = cwd || os.homedir();
 
@@ -60,8 +68,8 @@ io.on('connection', (socket) => {
             else { shellArgs = ['-NoLogo']; }
         }
 
-        console.log(`[TerminalService] Creating ${terminalId} in ${workingDir} (${profile || 'PowerShell'})`);
-        pushOutputLog('Terminal', 'info', `New terminal created: ${name || profile || 'PowerShell'} in ${workingDir}`);
+        console.log(`[TerminalService] Spawning ${shell} in ${workingDir} (ID: ${terminalId})`);
+        pushOutputLog('Terminal', 'info', `New terminal: ${name || profile || 'PowerShell'} in ${workingDir}`);
 
         try {
             const ptyProcess = pty.spawn(shell, shellArgs, {
@@ -597,5 +605,154 @@ app.post('/git/commit', async (req, res) => {
     }
 });
 
+// ── DAP Debug Adapter Relay (/debug namespace) ────────────────────────────────
+
+const net = require('net');
+
+const debugNamespace = io.of('/debug');
+const debugSessions = {};
+
+debugNamespace.on('connection', (socket) => {
+    console.log(`[DAP] Debug client connected: ${socket.id}`);
+    let sessionId = null;
+    let adapterSocket = null;
+    let adapterProcess = null;
+    let buffer = '';
+
+    const cleanup = () => {
+        try { adapterProcess?.kill(); } catch (_) { }
+        try { adapterSocket?.destroy(); } catch (_) { }
+        adapterProcess = null;
+        adapterSocket = null;
+        if (sessionId && debugSessions[sessionId]) delete debugSessions[sessionId];
+    };
+
+    socket.on('debug:launch', ({ language, filePath, args = [] }) => {
+        sessionId = uuidv4();
+        debugSessions[sessionId] = { socket, language, filePath };
+
+        const debuggerPort = 40000 + Math.floor(Math.random() * 1000);
+
+        // Spawn the right debug adapter
+        let adapterCmd, adapterArgs;
+        const lang = (language || '').toLowerCase();
+
+        if (lang === 'javascript' || lang === 'typescript') {
+            adapterCmd = 'node';
+            adapterArgs = [`--inspect-brk=${debuggerPort}`, filePath, ...args];
+        } else if (lang === 'python') {
+            adapterCmd = process.platform === 'win32' ? 'python' : 'python3';
+            adapterArgs = ['-m', 'debugpy', `--listen`, `${debuggerPort}`, '--wait-for-client', filePath, ...args];
+        } else {
+            socket.emit('debug:event', { type: 'error', message: `Unsupported language: ${language}` });
+            return;
+        }
+
+        console.log(`[DAP] Spawning: ${adapterCmd} ${adapterArgs.join(' ')}`);
+        adapterProcess = spawn(adapterCmd, adapterArgs, { env: process.env });
+
+        adapterProcess.stdout.on('data', d => {
+            socket.emit('debug:event', { type: 'output', category: 'stdout', output: d.toString() });
+        });
+
+        adapterProcess.stderr.on('data', d => {
+            const msg = d.toString();
+            socket.emit('debug:event', { type: 'output', category: 'stderr', output: msg });
+            // Wait for node to be ready then connect TCP
+            if (msg.includes('Debugger listening') && !adapterSocket) {
+                connectAdapter(debuggerPort);
+            }
+        });
+
+        adapterProcess.on('exit', (code) => {
+            socket.emit('debug:event', { type: 'terminated' });
+            cleanup();
+        });
+
+        // For Python debugpy — give it a moment before connecting
+        if (lang === 'python') {
+            setTimeout(() => connectAdapter(debuggerPort), 1500);
+        }
+
+        socket.emit('debug:initialized', { sessionId });
+    });
+
+    function connectAdapter(port) {
+        adapterSocket = new net.Socket();
+        adapterSocket.connect(port, '127.0.0.1', () => {
+            console.log(`[DAP] Connected to debug adapter on port ${port}`);
+            socket.emit('debug:event', { type: 'initialized' });
+        });
+
+        adapterSocket.on('data', (data) => {
+            // DAP protocol: Content-Length: N\r\n\r\n{...JSON...}
+            buffer += data.toString();
+            const parts = buffer.split('\r\n\r\n');
+            while (parts.length >= 2) {
+                const body = parts[1];
+                try {
+                    const msg = JSON.parse(body);
+                    if (msg.type === 'event') {
+                        if (msg.event === 'stopped') {
+                            const body = msg.body || {};
+                            socket.emit('debug:event', {
+                                type: 'stopped',
+                                reason: body.reason,
+                                threadId: body.threadId,
+                                line: body.line,
+                            });
+                        } else if (msg.event === 'continued') {
+                            socket.emit('debug:event', { type: 'continued' });
+                        } else if (msg.event === 'terminated' || msg.event === 'exited') {
+                            socket.emit('debug:event', { type: 'terminated' });
+                        } else if (msg.event === 'output') {
+                            socket.emit('debug:event', { type: 'output', category: msg.body?.category || 'console', output: msg.body?.output || '' });
+                        }
+                    }
+                } catch (_) { }
+                parts.shift(); parts.shift();
+                buffer = parts.join('\r\n\r\n');
+            }
+        });
+
+        adapterSocket.on('error', (e) => {
+            socket.emit('debug:event', { type: 'error', message: e.message });
+        });
+
+        adapterSocket.on('close', () => {
+            socket.emit('debug:event', { type: 'terminated' });
+        });
+    }
+
+    const sendDapCommand = (command, args = {}) => {
+        if (!adapterSocket || adapterSocket.destroyed) return;
+        const body = JSON.stringify({ seq: Date.now(), type: 'request', command, arguments: args });
+        const msg = `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
+        adapterSocket.write(msg);
+    };
+
+    socket.on('debug:breakpoints', ({ filePath, lines }) => {
+        sendDapCommand('setBreakpoints', {
+            source: { path: filePath },
+            breakpoints: lines.map(l => ({ line: l }))
+        });
+    });
+    socket.on('debug:continue', () => sendDapCommand('continue', { threadId: 1 }));
+    socket.on('debug:stepOver', () => sendDapCommand('next', { threadId: 1 }));
+    socket.on('debug:stepInto', () => sendDapCommand('stepIn', { threadId: 1 }));
+    socket.on('debug:stepOut', () => sendDapCommand('stepOut', { threadId: 1 }));
+    socket.on('debug:pause', () => sendDapCommand('pause', { threadId: 1 }));
+    socket.on('debug:stop', cleanup);
+
+    socket.on('disconnect', () => {
+        console.log(`[DAP] Debug client disconnected: ${socket.id}`);
+        cleanup();
+    });
+});
+
+// ── END DAP ────────────────────────────────────────────────────────────────────
+
 const PORT = 8082;
 server.listen(PORT, () => console.log(`[Server] Panel Service running on port ${PORT}`));
+
+

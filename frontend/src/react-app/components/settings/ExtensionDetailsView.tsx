@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Extension } from '@/types/extension';
+import { useState, useEffect } from 'react';
 import { extensionService } from '@/services/extensionService';
 import {
-    X, ArrowLeft, Download, Shield, Globe,
-    History, Puzzle, Settings, CheckCircle2,
+    ArrowLeft, Download,
+    Settings, Globe, History, Puzzle,
     XCircle, Loader2, Info, Package, User, Hash
 } from 'lucide-react';
 import { Button } from '@/react-app/components/ui/button';

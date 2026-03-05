@@ -146,6 +146,41 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
   useIdeCommandListener("edit.toggleLineComment", () => editorRef.current?.trigger('menu', 'editor.action.commentLine', null));
   useIdeCommandListener("edit.toggleBlockComment", () => editorRef.current?.trigger('menu', 'editor.action.blockComment', null));
 
+  useIdeCommandListener("edit.cut", async () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    if (selection && !selection.isEmpty()) {
+      const text = editor.getModel()?.getValueInRange(selection);
+      if (text) {
+        await navigator.clipboard.writeText(text);
+        editor.executeEdits("clipboard", [{ range: selection, text: "", forceMoveMarkers: true }]);
+      }
+    }
+  });
+
+  useIdeCommandListener("edit.copy", async () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    if (selection && !selection.isEmpty()) {
+      const text = editor.getModel()?.getValueInRange(selection);
+      if (text) await navigator.clipboard.writeText(text);
+    }
+  });
+
+  useIdeCommandListener("edit.paste", async () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      const selection = editor.getSelection();
+      editor.executeEdits("clipboard", [{ range: selection, text, forceMoveMarkers: true }]);
+    } catch (e) {
+      console.error("Paste failed", e);
+    }
+  });
+
   useIdeCommandListener("selection.selectAll", () => editorRef.current?.trigger('menu', 'editor.action.selectAll', null));
   useIdeCommandListener("selection.expandSelection", () => editorRef.current?.trigger('menu', 'editor.action.smartSelect.expand', null));
   useIdeCommandListener("selection.shrinkSelection", () => editorRef.current?.trigger('menu', 'editor.action.smartSelect.shrink', null));
@@ -153,13 +188,27 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
   useIdeCommandListener("selection.copyLineDown", () => editorRef.current?.trigger('menu', 'editor.action.copyLinesDownAction', null));
   useIdeCommandListener("selection.moveLineUp", () => editorRef.current?.trigger('menu', 'editor.action.moveLinesUpAction', null));
   useIdeCommandListener("selection.moveLineDown", () => editorRef.current?.trigger('menu', 'editor.action.moveLinesDownAction', null));
+  useIdeCommandListener("selection.duplicateSelection", () => editorRef.current?.trigger('menu', 'editor.action.duplicateSelection', null));
+  useIdeCommandListener("selection.addCursorAbove", () => editorRef.current?.trigger('menu', 'editor.action.insertCursorAbove', null));
+  useIdeCommandListener("selection.addCursorBelow", () => editorRef.current?.trigger('menu', 'editor.action.insertCursorBelow', null));
+  useIdeCommandListener("selection.addCursorsToLineEnds", () => editorRef.current?.trigger('menu', 'editor.action.insertCursorAtEndOfEachLineSelected', null));
+  useIdeCommandListener("selection.addNextOccurrence", () => editorRef.current?.trigger('menu', 'editor.action.addSelectionToNextFindMatch', null));
 
   useIdeCommandListener("view.commandPalette", () => editorRef.current?.trigger('menu', 'editor.action.quickCommand', null));
   useIdeCommandListener("help.showCommands", () => editorRef.current?.trigger('menu', 'editor.action.quickCommand', null));
 
-  useIdeCommandListener("go.goToSymbol", () => editorRef.current?.trigger('menu', 'editor.action.quickOutline', null));
+  useIdeCommandListener("go.goToSymbolInEditor", () => editorRef.current?.trigger('menu', 'editor.action.quickOutline', null));
   useIdeCommandListener("go.goToDefinition", () => editorRef.current?.trigger('menu', 'editor.action.revealDefinition', null));
+  useIdeCommandListener("go.goToDeclaration", () => editorRef.current?.trigger('menu', 'editor.action.revealDeclaration', null));
+  useIdeCommandListener("go.goToTypeDefinition", () => editorRef.current?.trigger('menu', 'editor.action.goToTypeDefinition', null));
+  useIdeCommandListener("go.goToImplementation", () => editorRef.current?.trigger('menu', 'editor.action.goToImplementation', null));
+  useIdeCommandListener("go.goToReferences", () => editorRef.current?.trigger('menu', 'editor.action.referenceSearch.trigger', null));
   useIdeCommandListener("go.goToLine", () => editorRef.current?.trigger('menu', 'editor.action.gotoLine', null));
+  useIdeCommandListener("go.goToBracket", () => editorRef.current?.trigger('menu', 'editor.action.jumpToBracket', null));
+  useIdeCommandListener("go.nextProblem", () => editorRef.current?.trigger('menu', 'editor.action.marker.next', null));
+  useIdeCommandListener("go.previousProblem", () => editorRef.current?.trigger('menu', 'editor.action.marker.prev', null));
+  useIdeCommandListener("go.nextChange", () => editorRef.current?.trigger('menu', 'editor.action.dirtydiff.next', null));
+  useIdeCommandListener("go.previousChange", () => editorRef.current?.trigger('menu', 'editor.action.dirtydiff.previous', null));
 
   if (tabs.length === 0) {
     return (
