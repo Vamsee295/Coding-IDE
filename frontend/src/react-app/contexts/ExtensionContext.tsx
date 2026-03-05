@@ -21,11 +21,18 @@ export function ExtensionProvider({ children }: { children: ReactNode }) {
         setLoading(true);
         setError(null);
         try {
-            const data = await extensionService.getAll();
-            setExtensions(data);
+            const [native, imported] = await Promise.all([
+                extensionService.getAll(),
+                extensionService.getImported()
+            ]);
+
+            // Tag native extensions as builtin if not already
+            const taggedNative = native.map(ext => ({ ...ext, source: 'builtin' as const }));
+
+            setExtensions([...taggedNative, ...imported]);
         } catch (err) {
             console.error('Failed to load extensions:', err);
-            setError('Failed to connect to extension service.');
+            setError('Failed to connect to extension services.');
         } finally {
             setLoading(false);
         }

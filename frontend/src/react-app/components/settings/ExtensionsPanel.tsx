@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Extension } from "@/types/extension";
 import { extensionService } from "@/services/extensionService";
+import ImportVSCodeModal from "@/react-app/components/settings/ImportVSCodeModal";
+import ExtensionDetailsView from "@/react-app/components/settings/ExtensionDetailsView";
 import {
     Code2,
     Sparkles,
@@ -11,6 +13,7 @@ import {
     CheckCircle2,
     XCircle,
     RefreshCw,
+    Download,
 } from "lucide-react";
 
 // ─── Extension icon + colour per category ─────────────────────────────────
@@ -85,27 +88,31 @@ function ToggleSwitch({
 function ExtensionCard({
     extension,
     onToggle,
+    onClick,
 }: {
     extension: Extension;
     onToggle: (id: string, enable: boolean) => Promise<void>;
+    onClick: (id: string) => void;
 }) {
     const [toggling, setToggling] = useState(false);
     const meta = getCategoryMeta(extension.category);
 
-    const handleToggle = async () => {
+    const handleToggle = (e: React.MouseEvent) => {
+        e.stopPropagation();
         setToggling(true);
-        await onToggle(extension.id, !extension.enabled);
-        setToggling(false);
+        onToggle(extension.id, !extension.enabled).finally(() => setToggling(false));
     };
 
     return (
         <div
+            onClick={() => onClick(extension.id)}
             className={`
-        group flex items-start gap-4 p-4 rounded-lg border transition-all duration-200
+        group flex items-start gap-4 p-4 rounded-lg border transition-all duration-200 cursor-pointer
         ${extension.enabled
-                    ? "bg-ide-sidebar/80 border-indigo-500/30 shadow-sm shadow-indigo-500/5"
+                    ? "bg-ide-sidebar/80 border-indigo-500/30 shadow-sm shadow-indigo-500/5 hover:border-indigo-500/50"
                     : "bg-ide-sidebar/40 border-ide-border hover:border-ide-border/80"
                 }
+        hover:bg-ide-sidebar/90 hover:translate-x-1 active:scale-[0.99]
       `}
         >
             {/* icon */}
@@ -116,7 +123,9 @@ function ExtensionCard({
           ${meta.color}
         `}
             >
-                {meta.icon}
+                {extension.icon ? (
+                    <img src={extension.icon} className="w-6 h-6 object-contain" alt="" />
+                ) : meta.icon}
             </div>
 
             {/* content */}
@@ -164,7 +173,7 @@ function ExtensionCard({
                 ) : (
                     <ToggleSwitch
                         checked={extension.enabled}
-                        onChange={handleToggle}
+                        onChange={() => handleToggle({ stopPropagation: () => { } } as any)}
                         loading={toggling}
                     />
                 )}
@@ -181,6 +190,8 @@ export default function ExtensionsPanel() {
     const { extensions, loading, refreshExtensions } = useExtensions();
     const [error, setError] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [selectedExtensionId, setSelectedExtensionId] = useState<string | null>(null);
 
     // Initial load happens in ExtensionProvider, but we can refresh here if needed
     const handleRefresh = useCallback(async () => {
@@ -230,8 +241,20 @@ export default function ExtensionsPanel() {
 
     const enabledCount = extensions.filter((e) => e.enabled).length;
 
+    if (selectedExtensionId) {
+        return (
+            <ExtensionDetailsView
+                extensionId={selectedExtensionId}
+                onBack={() => {
+                    setSelectedExtensionId(null);
+                    refreshExtensions();
+                }}
+            />
+        );
+    }
+
     return (
-        <div className="relative flex flex-col h-full overflow-hidden">
+        <div className="relative flex flex-col h-full overflow-hidden animate-in fade-in duration-300">
 
             {/* Toast notification */}
             {toast && (
@@ -253,6 +276,16 @@ export default function ExtensionsPanel() {
                 </div>
             )}
 
+            {/* Import VS Code Modal */}
+            <ImportVSCodeModal
+                isOpen={showImportModal}
+                onClose={() => setShowImportModal(false)}
+                onImported={() => {
+                    setToast({ message: "VS Code extensions imported successfully!", type: "success" });
+                    refreshExtensions().catch(() => { });
+                }}
+            />
+
             {/* Header */}
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-ide-border shrink-0">
                 <div>
@@ -261,14 +294,23 @@ export default function ExtensionsPanel() {
                         {loading ? "Loading..." : `${enabledCount} of ${extensions.length} active`}
                     </p>
                 </div>
-                <button
-                    onClick={handleRefresh}
-                    disabled={loading}
-                    className="flex items-center gap-1.5 text-xs text-ide-text-secondary hover:text-ide-text-primary transition-colors px-2 py-1.5 rounded hover:bg-ide-hover"
-                >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-                    Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setShowImportModal(true)}
+                        className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20"
+                    >
+                        <Download className="w-3.5 h-3.5" />
+                        Import VS Code Extensions
+                    </button>
+                    <button
+                        onClick={handleRefresh}
+                        disabled={loading}
+                        className="flex items-center gap-1.5 text-xs text-ide-text-secondary hover:text-ide-text-primary transition-colors px-2 py-1.5 rounded hover:bg-ide-hover"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             {/* Content */}
@@ -314,7 +356,12 @@ export default function ExtensionsPanel() {
                         </h3>
                         <div className="space-y-2">
                             {exts.map((ext) => (
-                                <ExtensionCard key={ext.id} extension={ext} onToggle={handleToggle} />
+                                <ExtensionCard
+                                    key={ext.id}
+                                    extension={ext}
+                                    onToggle={handleToggle}
+                                    onClick={(id) => setSelectedExtensionId(id)}
+                                />
                             ))}
                         </div>
                     </div>

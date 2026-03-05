@@ -199,4 +199,65 @@ public class FileSystemController {
             return ResponseEntity.status(500).body("Error renaming item: " + e.getMessage());
         }
     }
+
+    /**
+     * Searches for a query string in files within a directory recursively
+     */
+    @GetMapping("/search")
+    public ResponseEntity<?> searchFiles(@RequestParam String query, @RequestParam String rootPath) {
+        if (query == null || query.isEmpty()) {
+            return ResponseEntity.badRequest().body("Query is required");
+        }
+        File root = new File(rootPath);
+        if (!root.exists() || !root.isDirectory()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        searchRecursive(root, query, results);
+        return ResponseEntity.ok(results);
+    }
+
+    private void searchRecursive(File file, String query, List<Map<String, Object>> results) {
+        File[] children = file.listFiles();
+        if (children == null) return;
+
+        for (File child : children) {
+            if (child.isDirectory()) {
+                String name = child.getName();
+                if (name.equals("node_modules") || name.equals(".git") || name.equals("target") || name.equals("build") || name.equals(".next") || name.equals("dist")) {
+                    continue;
+                }
+                searchRecursive(child, query, results);
+            } else {
+                try {
+                    // Basic binary check: check if filename ends with common binary extensions
+                    String name = child.getName().toLowerCase();
+                    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || 
+                        name.endsWith(".gif") || name.endsWith(".pdf") || name.endsWith(".exe") || 
+                        name.endsWith(".dll") || name.endsWith(".class") || name.endsWith(".jar") ||
+                        name.endsWith(".ico") || name.endsWith(".woff") || name.endsWith(".woff2")) {
+                        continue;
+                    }
+
+                    List<String> lines = Files.readAllLines(child.toPath());
+                    for (int i = 0; i < lines.size(); i++) {
+                        String line = lines.get(i);
+                        if (line.toLowerCase().contains(query.toLowerCase())) {
+                            Map<String, Object> match = new HashMap<>();
+                            match.put("path", child.getAbsolutePath());
+                            match.put("line", i + 1);
+                            match.put("content", line.trim());
+                            results.add(match);
+                            
+                            if (results.size() >= 1000) return;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Ignore binary files or read errors
+                }
+            }
+            if (results.size() >= 1000) return;
+        }
+    }
 }

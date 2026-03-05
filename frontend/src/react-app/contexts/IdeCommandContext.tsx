@@ -44,6 +44,8 @@ export type IdeCommandId =
     | "view.explorer"
     | "view.search"
     | "view.extensions"
+    | "view.scm"
+    | "view.debug"
     | "view.terminal"
     | "view.toggleAiChat"
     | "view.wordWrap"

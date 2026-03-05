@@ -8,8 +8,8 @@ import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog"
 import SettingsView from "@/react-app/components/ide/SettingsView";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
-import { FileItem, ChatMessage, EditorTab, AIAction } from "@/react-app/types/ide";
-import { getProjects, getProjectFiles, createFile, updateFile, deleteFile } from "@/services/api";
+import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab } from "@/react-app/types/ide";
+import { createFile, updateFile, deleteFile } from "@/services/api";
 import { buildTreeFromFiles } from "@/utils/fileSystemHelper";
 import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
@@ -44,37 +44,6 @@ const getLanguage = (filename: string): string => {
 };
 // Dummy data removed, using dynamic loading from API
 
-// Helper to transform flat DB files into nested tree
-const buildFileTree = (files: any[]): FileItem[] => {
-  const map = new Map<string, FileItem>();
-  const roots: FileItem[] = [];
-
-  files.forEach((file) => {
-    map.set(file.id, {
-      id: file.id,
-      name: file.name,
-      type: file.type,
-      content: file.content || "",
-      children: file.type === "folder" ? [] : undefined,
-    });
-  });
-
-  files.forEach((file) => {
-    const node = map.get(file.id)!;
-    if (file.parent) {
-      const parentNode = map.get(file.parent.id);
-      if (parentNode && parentNode.children) {
-        parentNode.children.push(node);
-      } else {
-        roots.push(node); // Fallback if parent is missing
-      }
-    } else {
-      roots.push(node);
-    }
-  });
-
-  return roots;
-};
 
 export default function HomePage() {
   const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
@@ -147,43 +116,66 @@ export default function HomePage() {
   // Tracks the very first project path — passed as initialCwd to TerminalPanel once
   const [initialTerminalCwd, setInitialTerminalCwd] = useState<string | undefined>(undefined);
 
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
+
+  useIdeCommandListener("view.explorer", () => setSidebarTab("explorer"));
+  useIdeCommandListener("view.search", () => {
+    setSidebarTab("search");
+    setSidebarCollapsed(false);
+  });
+  useIdeCommandListener("view.extensions", () => {
+    setSidebarTab("extensions");
+    setSidebarCollapsed(false);
+  });
+  useIdeCommandListener("view.scm", () => {
+    setSidebarTab("git");
+    setSidebarCollapsed(false);
+  });
+  useIdeCommandListener("view.debug", () => {
+    setSidebarTab("debug");
+    setSidebarCollapsed(false);
+  });
+
 
   // Ref to the terminal panel — used to imperatively cd when a project is opened
   const terminalRef = useRef<TerminalPanelHandle>(null);
 
-  // Load Projects and Files from Backend
+  // Reopen from last working state or default to User Home
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // 1. Try to restore last active workspace from localStorage
-        const lastWorkspace = localStorage.getItem("ide-last-active-workspace");
-        if (lastWorkspace) {
-          console.log("[Home] Restoring last active workspace:", lastWorkspace);
-          await openWorkspacePath(lastWorkspace);
-          return; // Skip project list loading if we restored a workspace
-        }
+    const restoreWorkspace = async () => {
+      const lastWorkspace = localStorage.getItem("ide-last-active-workspace");
 
-        // 2. Fallback to Project List from DB
-        const projects = await getProjects();
-        if (projects.length > 0) {
-          const defaultProject = projects[0];
-          setActiveProjectId(defaultProject.id);
-
-          const rawFiles = await getProjectFiles(defaultProject.id);
-          setFiles(buildFileTree(rawFiles));
-
-          if (defaultProject.rootPath) {
-            setActiveProjectPath(defaultProject.rootPath);
-            setInitialTerminalCwd(defaultProject.rootPath);
-            openBackendWorkspace(defaultProject.rootPath).catch(() => { });
+      // If we have a saved state, attempt to restore it
+      if (lastWorkspace) {
+        try {
+          // Check if it still exists before opening
+          const existsInfo = await fsService.checkExists(lastWorkspace);
+          if (existsInfo.exists && existsInfo.isDirectory) {
+            await openWorkspacePath(lastWorkspace);
+            return;
           }
+        } catch (e) {
+          console.error("Failed to restore last workspace, falling back to home", e);
         }
-      } catch (error) {
-        console.error("Failed to load backend data", error);
-        // Fallback or error reporting UI could be shown here
+      }
+
+      // Fallback: Fetch Home Directory from Terminal Server
+      try {
+        const res = await fetch("http://localhost:8082/user-home");
+        const data = await res.json();
+        if (data.path) {
+          await openWorkspacePath(data.path);
+        } else {
+          // Absolute last resort
+          await openWorkspacePath("C:\\");
+        }
+      } catch (e) {
+        console.error("Failed to fetch user home, falling back to C:\\", e);
+        await openWorkspacePath("C:\\");
       }
     };
-    fetchData();
+
+    restoreWorkspace().catch(console.error);
   }, []);
 
   const getProjectContext = useCallback((items: FileItem[], depth = 0, currentCount = { val: 0 }): string => {
@@ -753,7 +745,7 @@ export default function HomePage() {
     setTerminalVisible(true);
     // Let TerminalPanel handle the creation using the requested profile
     if (terminalRef.current) {
-      terminalRef.current.openTerminalWithProfile(activeProjectPath || "X:\\Project-Buildings", profile);
+      terminalRef.current.openTerminalWithProfile(activeProjectPath || "C:\\", profile);
     }
   });
   useIdeCommandListener("file.newFile", () => handleNewFile("root"));
@@ -767,16 +759,11 @@ export default function HomePage() {
       }
     } catch (e) {
       console.error("Failed to call native folder picker from terminal server", e);
-      // Fallback
-      const defaultPath = localStorage.getItem("ide-last-active-workspace") || "X:\\Project-Buildings\\";
-      const path = prompt("Enter the absolute path of the project folder:", defaultPath);
-      if (path) {
-        await openWorkspacePath(path);
-      }
+      alert("Terminal server is not running or failed to open folder picker. Please ensure the backend is active.");
     }
   });
 
-  const openWorkspacePath = async (path: string) => {
+  async function openWorkspacePath(path: string) {
     try {
       const info = await fsService.checkExists(path);
       if (info.exists && info.isDirectory) {
@@ -791,7 +778,7 @@ export default function HomePage() {
         setTabs([]);
         setActiveFileId(null);
         setActiveProjectPath(path);
-        setInitialTerminalCwd(prev => prev ?? path);
+        setInitialTerminalCwd(path);
         // Register on backend so terminal + project detector know the workspace
         openBackendWorkspace(path).catch(() => { });
         // Open a NEW terminal tab for this workspace and clear old ones
@@ -810,9 +797,16 @@ export default function HomePage() {
   };
 
   useIdeCommandListener("file.openLocalPath", async () => {
-    const path = prompt("Enter the absolute path of the project folder:", "X:\\Project-Buildings\\twitter-sentiment-analysis");
-    if (!path) return;
-    await openWorkspacePath(path);
+    try {
+      const resp = await fetch("http://localhost:8082/pick-folder");
+      const data = await resp.json();
+      if (data.path) {
+        await openWorkspacePath(data.path);
+      }
+    } catch (e) {
+      console.error("Failed to call native folder picker from terminal server", e);
+      alert("Terminal server is not running or failed to open folder picker.");
+    }
   });
 
   useIdeCommandListener("file.openRecent", async (path: string) => {
@@ -859,7 +853,7 @@ export default function HomePage() {
     }
   };
   useIdeCommandListener("file.preferences", () => {
-    setSettingsTab("general");
+    setSettingsTab("text-editor.general");
     setIsSettingsOpen(true);
   });
   useIdeCommandListener("view.extensions", () => {
@@ -867,7 +861,7 @@ export default function HomePage() {
     setIsSettingsOpen(true);
   });
   useIdeCommandListener("help.about", () => {
-    setSettingsTab("about");
+    setSettingsTab("application.updates");
     setIsSettingsOpen(true);
   });
   useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
@@ -1001,9 +995,16 @@ export default function HomePage() {
   }, [settings.autoSave, tabs, activeProjectId]);
 
   useIdeCommandListener("file.exit", () => {
-    if (confirm("Are you sure you want to exit the IDE?")) {
-      window.close();
-      document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;height:100vh;background:#0f111a;color:#fff;font-family:sans-serif;'>IDE Closed. You can close this tab.</div>";
+    if (confirm("Are you sure you want to close the current project?")) {
+      setActiveProjectId(null);
+      setFiles([]);
+      setTabs([]);
+      setActiveFileId(null);
+      setActiveProjectPath(undefined);
+      setInitialTerminalCwd("C:\\");
+      terminalRef.current?.resetForNewWorkspace("C:\\");
+      setTerminalVisible(true);
+      localStorage.removeItem("ide-last-active-workspace");
     }
   });
 
@@ -1041,6 +1042,9 @@ export default function HomePage() {
             onFolderExpand={handleFolderExpand}
             width={sidebarWidth}
             isResizing={resizingPanel === "sidebar"}
+            activeTab={sidebarTab}
+            onTabChange={setSidebarTab}
+            rootPath={activeProjectPath}
           />
           {!sidebarCollapsed && (
             <div

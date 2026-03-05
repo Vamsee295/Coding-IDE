@@ -65,5 +65,13 @@ export const fsService = {
     async renameItem(oldPath: string, newPath: string): Promise<string> {
         const response = await axios.post(`${API_BASE_URL}/rename`, { oldPath, newPath });
         return response.data;
+    },
+
+    /**
+     * Search files content
+     */
+    async search(query: string, rootPath: string): Promise<Array<{ path: string, line: number, content: string }>> {
+        const response = await axios.get(`${API_BASE_URL}/search`, { params: { query, rootPath } });
+        return response.data;
     }
 };

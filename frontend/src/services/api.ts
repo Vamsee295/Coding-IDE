@@ -9,6 +9,13 @@ export const apiClient = axios.create({
     },
 });
 
+export const terminalClient = axios.create({
+    baseURL: "http://localhost:8082",
+    headers: {
+        "Content-Type": "application/json",
+    },
+});
+
 // Optionally add a JWT interceptor if authentication exists in the app later
 // apiClient.interceptors.request.use((config) => {
 //   const token = localStorage.getItem("token");

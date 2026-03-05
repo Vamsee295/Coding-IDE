@@ -41,3 +41,5 @@ export interface ModelOption {
   name: string;
   description: string;
 }
+
+export type SidebarTab = "explorer" | "search" | "git" | "debug" | "extensions";

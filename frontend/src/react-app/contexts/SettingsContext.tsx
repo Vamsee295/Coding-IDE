@@ -1,50 +1,270 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-// Define the shape of our settings
+// ─── Complete IDE Settings Interface ────────────────────────────────────────
 export interface AppSettings {
+    // ── Text Editor ──
     // General
     theme: string;
-
-    // Editor
-    minimap: boolean;
+    tabSize: number;
+    insertSpaces: boolean;
+    autoSave: boolean;
+    autoSaveDelay: number;
     lineNumbers: boolean;
-    bracketPairColorization: boolean;
-    formatOnSave: boolean;
+    renderWhitespace: string;
+    // Font
     fontFamily: string;
     fontSize: number;
+    fontLigatures: boolean;
+    lineHeight: number;
+    // Formatting
+    formatOnSave: boolean;
+    formatOnPaste: boolean;
+    defaultFormatter: string;
+    // Cursor
+    cursorStyle: string;
+    cursorBlinking: string;
+    cursorSmoothCaret: boolean;
+    cursorWidth: number;
+    // Minimap
+    minimap: boolean;
+    minimapScale: number;
+    minimapMaxColumn: number;
+    minimapRenderChars: boolean;
+    // Suggestions
+    suggestOnTriggerCharacters: boolean;
+    quickSuggestions: boolean;
+    inlineSuggestions: boolean;
+    acceptSuggestionOnEnter: string;
+    // Code Folding
+    codeFolding: boolean;
+    foldingStrategy: string;
+    showFoldingControls: string;
+    // Brackets
+    autoCloseBrackets: string;
+    bracketPairColorization: boolean;
+    bracketPairGuides: boolean;
+    // Indentation
+    detectIndentation: boolean;
+    autoIndent: string;
+    // Word Wrap
     wordWrap: boolean;
-    autoSave: boolean;
+    wordWrapColumn: number;
+    // Multi Cursor
+    multiCursorModifier: string;
+    multiCursorPaste: string;
+    // Sticky Scroll
+    stickyScroll: boolean;
+    stickyScrollMaxLines: number;
+    // Diff Editor
+    diffEditorSideBySide: boolean;
+    diffEditorIgnoreWhitespace: boolean;
 
+    // ── Workbench ──
+    iconTheme: string;
+    breadcrumbs: boolean;
+    editorPreviewMode: boolean;
+    editorTabCloseButton: string;
+    editorOpenSideBySide: boolean;
+    zenMode: boolean;
+    screencastMode: boolean;
+    layoutSidebarPosition: string;
+    layoutActivityBarVisible: boolean;
+    layoutStatusBarVisible: boolean;
+
+    // ── Window ──
+    zoomLevel: number;
+    restoreWindows: string;
+    newWindowDimensions: string;
+    titleBarStyle: string;
+    menuBarVisibility: string;
+
+    // ── Features ──
+    // Terminal
+    terminalFontSize: number;
+    terminalFontFamily: string;
+    terminalCursorBlinking: boolean;
+    terminalCursorStyle: string;
+    terminalDefaultProfile: string;
+    terminalScrollback: number;
+    // Explorer
+    explorerAutoReveal: boolean;
+    explorerSortOrder: string;
+    explorerCompactFolders: boolean;
+    // Search
+    searchExcludePattern: string;
+    searchUseIgnoreFiles: boolean;
+    searchSmartCase: boolean;
+    // Debug
+    debugOpenOnStart: string;
+    debugInlineValues: boolean;
+    debugToolBarLocation: string;
+    // Source Control
+    sourceControlAutoFetch: boolean;
+    sourceControlAutoRefresh: boolean;
+    sourceControlDiffDecorations: string;
+    // Problems
+    problemsAutoReveal: boolean;
+    problemsShowCurrentOnly: boolean;
+    // Tasks
+    taskAutoDetect: string;
     // AI Assistant
     aiModel: string;
     aiTemperature: number;
-    inlineSuggestions: boolean;
     contextualAwareness: boolean;
     streamingResponse: boolean;
-
-    // Ollama
+    aiContextWindow: number;
+    aiSafetyMode: boolean;
     ollamaEndpoint: string;
+
+    // ── Application ──
+    autoUpdate: boolean;
+    updateChannel: string;
+    language: string;
+    telemetry: boolean;
+    performanceMode: boolean;
+    maxMemory: number;
+    storageAutoCleanup: boolean;
+
+    // ── Security ──
+    workspaceTrust: boolean;
+    fileAccessRestricted: boolean;
+    terminalSecurityConfirmPaste: boolean;
+    aiSafetyBlocking: boolean;
+    extensionPermissionPrompt: boolean;
 }
 
-// Default settings
+// ─── Defaults ───────────────────────────────────────────────────────────────
 const defaultSettings: AppSettings = {
+    // Text Editor — General
     theme: 'deep-night',
-    minimap: true,
+    tabSize: 2,
+    insertSpaces: true,
+    autoSave: false,
+    autoSaveDelay: 1000,
     lineNumbers: true,
-    bracketPairColorization: true,
-    formatOnSave: true,
+    renderWhitespace: 'selection',
+    // Font
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     fontSize: 14,
-    wordWrap: true,
-    autoSave: false,
-    aiModel: 'qwen2.5-coder:7b', // Defaulting to the one in Navbar
-    aiTemperature: 0.7,
+    fontLigatures: true,
+    lineHeight: 1.6,
+    // Formatting
+    formatOnSave: true,
+    formatOnPaste: false,
+    defaultFormatter: 'prettier',
+    // Cursor
+    cursorStyle: 'line',
+    cursorBlinking: 'blink',
+    cursorSmoothCaret: true,
+    cursorWidth: 2,
+    // Minimap
+    minimap: true,
+    minimapScale: 1,
+    minimapMaxColumn: 120,
+    minimapRenderChars: true,
+    // Suggestions
+    suggestOnTriggerCharacters: true,
+    quickSuggestions: true,
     inlineSuggestions: true,
+    acceptSuggestionOnEnter: 'on',
+    // Code Folding
+    codeFolding: true,
+    foldingStrategy: 'auto',
+    showFoldingControls: 'mouseover',
+    // Brackets
+    autoCloseBrackets: 'always',
+    bracketPairColorization: true,
+    bracketPairGuides: true,
+    // Indentation
+    detectIndentation: true,
+    autoIndent: 'full',
+    // Word Wrap
+    wordWrap: true,
+    wordWrapColumn: 80,
+    // Multi Cursor
+    multiCursorModifier: 'alt',
+    multiCursorPaste: 'spread',
+    // Sticky Scroll
+    stickyScroll: true,
+    stickyScrollMaxLines: 5,
+    // Diff Editor
+    diffEditorSideBySide: true,
+    diffEditorIgnoreWhitespace: false,
+
+    // Workbench
+    iconTheme: 'material-icon-theme',
+    breadcrumbs: true,
+    editorPreviewMode: true,
+    editorTabCloseButton: 'right',
+    editorOpenSideBySide: false,
+    zenMode: false,
+    screencastMode: false,
+    layoutSidebarPosition: 'left',
+    layoutActivityBarVisible: true,
+    layoutStatusBarVisible: true,
+
+    // Window
+    zoomLevel: 0,
+    restoreWindows: 'all',
+    newWindowDimensions: 'default',
+    titleBarStyle: 'custom',
+    menuBarVisibility: 'visible',
+
+    // Features — Terminal
+    terminalFontSize: 13,
+    terminalFontFamily: "'Cascadia Code', 'Fira Code', monospace",
+    terminalCursorBlinking: true,
+    terminalCursorStyle: 'bar',
+    terminalDefaultProfile: 'PowerShell',
+    terminalScrollback: 10000,
+    // Explorer
+    explorerAutoReveal: true,
+    explorerSortOrder: 'default',
+    explorerCompactFolders: true,
+    // Search
+    searchExcludePattern: '**/node_modules, **/.git, **/dist',
+    searchUseIgnoreFiles: true,
+    searchSmartCase: true,
+    // Debug
+    debugOpenOnStart: 'openOnFirstSessionStart',
+    debugInlineValues: true,
+    debugToolBarLocation: 'floating',
+    // Source Control
+    sourceControlAutoFetch: false,
+    sourceControlAutoRefresh: true,
+    sourceControlDiffDecorations: 'all',
+    // Problems
+    problemsAutoReveal: true,
+    problemsShowCurrentOnly: false,
+    // Tasks
+    taskAutoDetect: 'on',
+    // AI Assistant
+    aiModel: 'qwen2.5-coder:7b',
+    aiTemperature: 0.7,
     contextualAwareness: true,
     streamingResponse: true,
-    ollamaEndpoint: 'http://localhost:11434'
+    aiContextWindow: 32000,
+    aiSafetyMode: true,
+    ollamaEndpoint: 'http://localhost:11434',
+
+    // Application
+    autoUpdate: true,
+    updateChannel: 'stable',
+    language: 'en',
+    telemetry: false,
+    performanceMode: false,
+    maxMemory: 4096,
+    storageAutoCleanup: true,
+
+    // Security
+    workspaceTrust: true,
+    fileAccessRestricted: false,
+    terminalSecurityConfirmPaste: true,
+    aiSafetyBlocking: true,
+    extensionPermissionPrompt: true,
 };
 
+// ─── Context ────────────────────────────────────────────────────────────────
 interface SettingsContextType {
     settings: AppSettings;
     updateSettings: (newSettings: Partial<AppSettings>) => void;
@@ -58,52 +278,40 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-    // Load initial settings from localStorage or use defaults
     const [settings, setSettings] = useState<AppSettings>(() => {
         try {
-            const savedSettings = localStorage.getItem('ide-settings');
-            if (savedSettings) {
-                return { ...defaultSettings, ...JSON.parse(savedSettings) };
-            }
-        } catch (error) {
-            console.error('Failed to parse settings from localStorage:', error);
+            const saved = localStorage.getItem('ide-settings');
+            if (saved) return { ...defaultSettings, ...JSON.parse(saved) };
+        } catch (e) {
+            console.error('Failed to parse settings:', e);
         }
         return defaultSettings;
     });
 
     const [isSettingsOpen, setIsSettingsOpenState] = useState(false);
-    const [settingsTab, setSettingsTab] = useState('general');
+    const [settingsTab, setSettingsTab] = useState('text-editor.general');
 
     const setIsSettingsOpen = (isOpen: boolean, tab?: string) => {
         setIsSettingsOpenState(isOpen);
         if (isOpen && tab) setSettingsTab(tab);
     };
 
-    // Save to localStorage whenever settings change
     useEffect(() => {
-        try {
-            localStorage.setItem('ide-settings', JSON.stringify(settings));
-        } catch (error) {
-            console.error('Failed to save settings to localStorage:', error);
-        }
+        try { localStorage.setItem('ide-settings', JSON.stringify(settings)); }
+        catch (e) { console.error('Failed to save settings:', e); }
     }, [settings]);
 
-    // Apply theme class to document based on setting (placeholder for now)
     useEffect(() => {
         if (settings.theme === 'deep-night') {
             document.documentElement.classList.add('dark');
-        } else {
-            // Logic for other themes later
         }
     }, [settings.theme]);
 
     const updateSettings = (newSettings: Partial<AppSettings>) => {
-        setSettings((prev) => ({ ...prev, ...newSettings }));
+        setSettings(prev => ({ ...prev, ...newSettings }));
     };
 
-    const resetSettings = () => {
-        setSettings(defaultSettings);
-    };
+    const resetSettings = () => setSettings(defaultSettings);
 
     return (
         <SettingsContext.Provider value={{ settings, updateSettings, resetSettings, isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab }}>
@@ -112,11 +320,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     );
 }
 
-// Custom hook to use settings
 export function useSettings() {
     const context = useContext(SettingsContext);
-    if (context === undefined) {
-        throw new Error('useSettings must be used within a SettingsProvider');
-    }
+    if (!context) throw new Error('useSettings must be used within a SettingsProvider');
     return context;
 }

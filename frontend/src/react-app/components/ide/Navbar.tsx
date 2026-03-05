@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
     Search,
     Settings,
-    Download,
     Maximize2,
     X,
     Minimize2,
@@ -140,7 +139,7 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 { type: "item", label: "Close Folder", shortcut: "Ctrl+K F", commandId: "file.closeFolder" },
                 { type: "item", label: "Close Window", shortcut: "Alt+F4", commandId: "file.closeWindow" },
                 { type: "separator" },
-                { type: "item", label: "Exit", commandId: "file.exit" }
+                { type: "item", label: "Close Project", commandId: "file.exit" }
             ]
         },
         {
@@ -384,18 +383,10 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => alert("Search functionality coming soon")}
+                    onClick={() => dispatchCommand("view.search")}
                     className="h-7 w-7 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover focus-visible:ring-0"
                 >
                     <Search className="w-4 h-4" />
-                </Button>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => alert("Downloading workspace...")}
-                    className="h-7 w-7 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover focus-visible:ring-0"
-                >
-                    <Download className="w-4 h-4" />
                 </Button>
                 {/* SETTINGS BUTTON OPEN TRIGGERS THE CONTEXT STATE */}
                 {/* AI TOGGLE BUTTON */}
@@ -464,7 +455,7 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
                         if (confirm("Are you sure you want to exit the IDE?")) {
                             window.close();
                             // Fallback if window.close() is blocked
-                            document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;height:100vh;background:#0f111a;color:#fff;font-family:sans-serif;'>IDE Closed. You can close this tab.</div>";
+                            document.body.innerHTML = "<div style='display:flex;align-items:center;justify-content:center;height:100vh;background:#000000;color:#fff;font-family:sans-serif;'>IDE Closed. You can close this tab.</div>";
                         }
                     }}
                     className="h-7 w-7 text-ide-text-secondary hover:text-red-400 hover:bg-ide-hover focus-visible:ring-0"
