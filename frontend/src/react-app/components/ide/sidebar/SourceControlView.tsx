@@ -4,6 +4,7 @@ import {
     Check, ChevronDown, ChevronRight, FileCode, Loader2, AlertCircle
 } from "lucide-react";
 import { cn } from "@/react-app/lib/utils";
+import { CONFIG } from "@/react-app/lib/config";
 
 interface SourceControlViewProps {
     rootPath?: string;
@@ -29,7 +30,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
         if (!rootPath) { setIsGitRepo(false); return; }
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:8082/git/status?path=${encodeURIComponent(rootPath)}`);
+            const res = await fetch(`${CONFIG.TERMINAL_API_URL}/git/status?path=${encodeURIComponent(rootPath)}`);
             if (!res.ok) { setIsGitRepo(false); setIsLoading(false); return; }
             const data = await res.json();
             setIsGitRepo(true);
@@ -46,7 +47,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
 
     const handleStage = async (filePath: string) => {
         try {
-            await fetch("http://localhost:8082/git/stage", {
+            await fetch(`${CONFIG.TERMINAL_API_URL}/git/stage`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ path: rootPath, files: [filePath] })
             });
@@ -56,7 +57,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
 
     const handleUnstage = async (filePath: string) => {
         try {
-            await fetch("http://localhost:8082/git/unstage", {
+            await fetch(`${CONFIG.TERMINAL_API_URL}/git/unstage`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ path: rootPath, files: [filePath] })
             });
@@ -67,7 +68,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
     const handleCommit = async () => {
         if (!commitMessage.trim()) return;
         try {
-            await fetch("http://localhost:8082/git/commit", {
+            await fetch(`${CONFIG.TERMINAL_API_URL}/git/commit`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ path: rootPath, message: commitMessage })
             });
@@ -121,7 +122,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
                     <button
                         onClick={async () => {
                             try {
-                                await fetch("http://localhost:8082/git/init", {
+                                await fetch(`${CONFIG.TERMINAL_API_URL}/git/init`, {
                                     method: "POST", headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ path: rootPath })
                                 });

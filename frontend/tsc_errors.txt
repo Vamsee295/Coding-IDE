@@ -1,8 +1,0 @@
-src/react-app/components/settings/ExtensionDetailsView.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
-src/react-app/components/settings/ExtensionDetailsView.tsx(2,1): error TS6133: 'Extension' is declared but its value is never read.
-src/react-app/components/settings/ExtensionDetailsView.tsx(5,5): error TS6133: 'X' is declared but its value is never read.
-src/react-app/components/settings/ExtensionDetailsView.tsx(5,29): error TS6133: 'Shield' is declared but its value is never read.
-src/react-app/components/settings/ExtensionDetailsView.tsx(6,32): error TS6133: 'CheckCircle2' is declared but its value is never read.
-src/react-app/components/settings/ImportVSCodeModal.tsx(4,14): error TS6133: 'FolderOpen' is declared but its value is never read.
-src/react-app/components/settings/ImportVSCodeModal.tsx(27,12): error TS6133: 'importedCount' is declared but its value is never read.
-src/react-app/contexts/ExtensionContext.tsx(1,8): error TS6133: 'React' is declared but its value is never read.

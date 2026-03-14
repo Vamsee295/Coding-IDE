@@ -105,11 +105,10 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData.items;
+    // Access items synchronously to avoid them being cleared in asynchronous contexts
+    const items = Array.from(e.clipboardData.items);
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-
+    for (const item of items) {
       if (item.type.indexOf("image") !== -1) {
         const file = item.getAsFile();
         if (!file) continue;
@@ -125,14 +124,18 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
         const file = item.getAsFile();
         if (!file) continue;
 
-        const text = await file.text();
-        const fakeFileItem: FileItem = {
-          id: `pasted-${Date.now()}-${file.name}`,
-          name: file.name,
-          type: "file",
-          content: text,
-        };
-        setTaggedFiles(prev => [...prev, fakeFileItem]);
+        try {
+          const text = await file.text();
+          const fakeFileItem: FileItem = {
+            id: `pasted-${Date.now()}-${file.name}`,
+            name: file.name,
+            type: "file",
+            content: text,
+          };
+          setTaggedFiles(prev => [...prev, fakeFileItem]);
+        } catch (error) {
+          console.error("Failed to read pasted file:", error);
+        }
       }
     }
   };

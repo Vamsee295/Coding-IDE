@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { Bug, Trash2, ChevronRight } from "lucide-react";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
+import { CONFIG } from "@/react-app/lib/config";
 
 interface DebugEntry {
     type: "log" | "error" | "warn" | "info" | "result" | "system";
@@ -40,7 +41,7 @@ export default function DebugConsolePanel() {
 
     const addEntry = (entry: DebugEntry) => setEntries(prev => [...prev, entry]);
 
-    const handleEval = (e: React.FormEvent) => {
+    const handleEval = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!input.trim()) return;
         const expr = input.trim();
@@ -48,11 +49,20 @@ export default function DebugConsolePanel() {
         setInput("");
 
         try {
-            // eslint-disable-next-line no-eval
-            const result = Function(`"use strict"; return (${expr})`)();
-            addEntry({ type: "result", message: String(result), timestamp: new Date().toISOString() });
+            const res = await fetch(`${CONFIG.TERMINAL_API_URL}/debug/eval`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ expression: expr })
+            });
+            const data = await res.json();
+            
+            if (data.error) {
+                addEntry({ type: "error", message: data.error, timestamp: new Date().toISOString() });
+            } else {
+                addEntry({ type: "result", message: String(data.result), timestamp: new Date().toISOString() });
+            }
         } catch (err: any) {
-            addEntry({ type: "error", message: err.message, timestamp: new Date().toISOString() });
+            addEntry({ type: "error", message: "Network Error: " + err.message, timestamp: new Date().toISOString() });
         }
     };
 

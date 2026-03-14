@@ -62,6 +62,11 @@ export type IdeCommandId =
     | "view.terminal"
     | "view.toggleAiChat"
     | "view.wordWrap"
+    | "view.toggleActivityBar"
+    | "view.toggleStatusBar"
+    | "view.toggleZenMode"
+    | "view.moveSidebarLeft"
+    | "view.moveSidebarRight"
 
     // Go/Navigation Commands
     | "go.back"

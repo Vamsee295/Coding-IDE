@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     X, Search, ChevronDown, ChevronRight,
     FileCode, Palette, AppWindow, Wrench, Settings2 as AppIcon,
@@ -17,6 +17,8 @@ import { Input } from '@/react-app/components/ui/input';
 import SettingRow from '@/react-app/components/settings/SettingRow';
 import SettingSection from '@/react-app/components/settings/SettingSection';
 import ExtensionsPanel from '@/react-app/components/settings/ExtensionsPanel';
+import { getTranslation } from '@/react-app/lib/i18n';
+import { CONFIG } from '@/react-app/lib/config';
 
 // ─── Sidebar Structure ──────────────────────────────────────────────────────
 
@@ -25,10 +27,10 @@ interface Category { id: string; label: string; icon: React.ReactNode; subPages:
 
 const CATEGORIES: Category[] = [
     {
-        id: 'text-editor', label: 'Text Editor', icon: <FileCode className="w-4 h-4" />,
+        id: 'text-editor', label: 'settings.category.textEditor', icon: <FileCode className="w-4 h-4" />,
         subPages: [
-            { id: 'text-editor.general', label: 'General', icon: <FileCode className="w-3.5 h-3.5" /> },
-            { id: 'text-editor.font', label: 'Font', icon: <Type className="w-3.5 h-3.5" /> },
+            { id: 'text-editor.general', label: 'settings.subpage.general', icon: <FileCode className="w-3.5 h-3.5" /> },
+            { id: 'text-editor.font', label: 'settings.subpage.font', icon: <Type className="w-3.5 h-3.5" /> },
             { id: 'text-editor.formatting', label: 'Formatting', icon: <FileCode className="w-3.5 h-3.5" /> },
             { id: 'text-editor.cursor', label: 'Cursor', icon: <MousePointer2 className="w-3.5 h-3.5" /> },
             { id: 'text-editor.minimap', label: 'Minimap', icon: <Map className="w-3.5 h-3.5" /> },
@@ -43,9 +45,9 @@ const CATEGORIES: Category[] = [
         ]
     },
     {
-        id: 'workbench', label: 'Workbench', icon: <Palette className="w-4 h-4" />,
+        id: 'workbench', label: 'settings.category.workbench', icon: <Palette className="w-4 h-4" />,
         subPages: [
-            { id: 'workbench.appearance', label: 'Appearance', icon: <Eye className="w-3.5 h-3.5" /> },
+            { id: 'workbench.appearance', label: 'settings.subpage.appearance', icon: <Eye className="w-3.5 h-3.5" /> },
             { id: 'workbench.breadcrumbs', label: 'Breadcrumbs', icon: <Navigation className="w-3.5 h-3.5" /> },
             { id: 'workbench.editor', label: 'Editor Management', icon: <Columns className="w-3.5 h-3.5" /> },
             { id: 'workbench.zen', label: 'Zen Mode', icon: <Sun className="w-3.5 h-3.5" /> },
@@ -54,7 +56,7 @@ const CATEGORIES: Category[] = [
         ]
     },
     {
-        id: 'window', label: 'Window', icon: <AppWindow className="w-4 h-4" />,
+        id: 'window', label: 'settings.category.window', icon: <AppWindow className="w-4 h-4" />,
         subPages: [
             { id: 'window.startup', label: 'Startup', icon: <Maximize className="w-3.5 h-3.5" /> },
             { id: 'window.zoom', label: 'Zoom', icon: <ZoomIn className="w-3.5 h-3.5" /> },
@@ -63,7 +65,7 @@ const CATEGORIES: Category[] = [
         ]
     },
     {
-        id: 'features', label: 'Features', icon: <Wrench className="w-4 h-4" />,
+        id: 'features', label: 'settings.category.features', icon: <Wrench className="w-4 h-4" />,
         subPages: [
             { id: 'features.terminal', label: 'Terminal', icon: <Terminal className="w-3.5 h-3.5" /> },
             { id: 'features.explorer', label: 'Explorer', icon: <FolderOpen className="w-3.5 h-3.5" /> },
@@ -76,17 +78,17 @@ const CATEGORIES: Category[] = [
         ]
     },
     {
-        id: 'application', label: 'Application', icon: <AppIcon className="w-4 h-4" />,
+        id: 'application', label: 'settings.category.application', icon: <AppIcon className="w-4 h-4" />,
         subPages: [
             { id: 'application.updates', label: 'Updates', icon: <Download className="w-3.5 h-3.5" /> },
-            { id: 'application.language', label: 'Language', icon: <Globe className="w-3.5 h-3.5" /> },
+            { id: 'application.language', label: 'settings.subpage.language', icon: <Globe className="w-3.5 h-3.5" /> },
             { id: 'application.telemetry', label: 'Telemetry', icon: <BarChart3 className="w-3.5 h-3.5" /> },
             { id: 'application.performance', label: 'Performance', icon: <Cpu className="w-3.5 h-3.5" /> },
             { id: 'application.storage', label: 'Storage', icon: <HardDrive className="w-3.5 h-3.5" /> },
         ]
     },
     {
-        id: 'security', label: 'Security', icon: <Shield className="w-4 h-4" />,
+        id: 'security', label: 'settings.category.security', icon: <Shield className="w-4 h-4" />,
         subPages: [
             { id: 'security.trust', label: 'Workspace Trust', icon: <Lock className="w-3.5 h-3.5" /> },
             { id: 'security.fileaccess', label: 'File Access', icon: <FileKey className="w-3.5 h-3.5" /> },
@@ -96,7 +98,7 @@ const CATEGORIES: Category[] = [
         ]
     },
     {
-        id: 'extensions', label: 'Extensions', icon: <Puzzle className="w-4 h-4" />,
+        id: 'extensions', label: 'settings.category.extensions', icon: <Puzzle className="w-4 h-4" />,
         subPages: []
     },
 ];
@@ -107,6 +109,97 @@ export default function SettingsView() {
     const { settings, updateSettings, resetSettings, isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab } = useSettings();
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['text-editor', 'features']));
     const [searchQuery, setSearchQuery] = useState('');
+
+    const t = useCallback((key: string) => t( key), [settings.language]);
+
+    const [availableModels, setAvailableModels] = useState<{ label: string, value: string }[]>([
+        { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' } // Immediate default, to be overwritten
+    ]);
+    const [isLoadingModels, setIsLoadingModels] = useState(false);
+    const [modelFetchError, setModelFetchError] = useState<string | null>(null);
+    const [pullModelName, setPullModelName] = useState('');
+    const [isPulling, setIsPulling] = useState(false);
+
+    const formatModelName = (name: string) => {
+        // e.g. "qwen2.5-coder:7b" -> "Qwen 2.5 Coder (7B)"
+        let formatted = name.replace(/-/g, ' ');
+        // capitalize first letter of each word
+        formatted = formatted.replace(/\b\w/g, c => c.toUpperCase());
+        // split by tag
+        const parts = formatted.split(':');
+        if (parts.length > 1) {
+            return `${parts[0]} (${parts[1].toUpperCase()})`;
+        }
+        return formatted;
+    };
+
+    const fetchModels = useCallback(async () => {
+        setIsLoadingModels(true);
+        setModelFetchError(null);
+        try {
+            // Updated to use centralized CONFIG for the Java backend
+            const res = await fetch(`${CONFIG.API_BASE_URL}/ai/models?endpoint=${encodeURIComponent(settings.ollamaEndpoint)}`);
+            if (!res.ok) throw new Error("Failed to fetch models");
+
+            const data = await res.json();
+            if (data && data.models && Array.isArray(data.models)) {
+                const fetchedOptions = data.models
+                    .filter((m: any) => m && m.name) // Defensive filter
+                    .map((m: any) => ({
+                        label: m.name ? formatModelName(m.name) : 'Unknown Model',
+                        value: m.name || ''
+                    }));
+
+                setAvailableModels(fetchedOptions.length > 0 ? fetchedOptions : [{ label: 'No models found', value: '' }]);
+                // If current selected isn't in the list, we might want to update it,
+                // but for now, just let the user see what's available.
+            } else {
+                throw new Error("Invalid response format");
+            }
+        } catch (e: any) {
+            setModelFetchError(e.message || "Failed to connect to Ollama server");
+            setAvailableModels([{ label: 'Error fetching models', value: 'error' }]);
+        } finally {
+            setIsLoadingModels(false);
+        }
+    }, [settings.ollamaEndpoint]);
+
+    const handlePullModel = async () => {
+        const targetModel = pullModelName.trim();
+        if (!targetModel) return;
+
+        setIsPulling(true);
+        try {
+            const res = await fetch(`${CONFIG.API_BASE_URL}/ai/pull`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: targetModel,
+                    ollamaEndpoint: settings.ollamaEndpoint
+                })
+            });
+
+            if (res.ok) {
+                alert(`Successfully pulled ${targetModel}`);
+                setPullModelName('');
+                await fetchModels(); // Refresh the list
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                alert(`Error pulling model: ${errData.error || res.statusText}`);
+            }
+        } catch (e: any) {
+            alert(`Network error while pulling: ${e.message}`);
+        } finally {
+            setIsPulling(false);
+        }
+    };
+
+    // Auto-fetch models when opening the AI tab
+    useEffect(() => {
+        if (isSettingsOpen && settingsTab === 'features.ai') {
+            fetchModels();
+        }
+    }, [isSettingsOpen, settingsTab, fetchModels]);
 
     if (!isSettingsOpen) return null;
 
@@ -149,7 +242,7 @@ export default function SettingsView() {
                     {/* Header + search */}
                     <div className="p-4 pb-3 flex-shrink-0">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xs font-semibold text-ide-text-secondary uppercase tracking-widest">Settings</h2>
+                            <h2 className="text-xs font-semibold text-ide-text-secondary uppercase tracking-widest">{t('settings.title')}</h2>
                             <Button
                                 variant="ghost" size="icon"
                                 onClick={() => setIsSettingsOpen(false)}
@@ -163,7 +256,7 @@ export default function SettingsView() {
                             <Input
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
-                                placeholder="Search settings…"
+                                placeholder={t('settings.search')}
                                 className="h-8 pl-8 text-xs bg-[rgba(15,17,26,0.5)] border-ide-border/50 focus-visible:ring-indigo-500"
                             />
                         </div>
@@ -196,14 +289,14 @@ export default function SettingsView() {
                                             }
                                         }}
                                         className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-all ${isActiveCategory && !hasSubPages
-                                                ? 'bg-indigo-500/15 text-indigo-300'
-                                                : isActiveCategory
-                                                    ? 'text-ide-text-primary'
-                                                    : 'text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/50'
+                                            ? 'bg-indigo-500/15 text-indigo-300'
+                                            : isActiveCategory
+                                                ? 'text-ide-text-primary'
+                                                : 'text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/50'
                                             }`}
                                     >
                                         <span className={isActiveCategory ? 'text-indigo-400' : ''}>{cat.icon}</span>
-                                        <span className="flex-1 text-left">{cat.label}</span>
+                                        <span className="flex-1 text-left">{t( cat.label)}</span>
                                         {hasSubPages && (
                                             <span className="text-ide-text-secondary">
                                                 {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -222,12 +315,12 @@ export default function SettingsView() {
                                                         key={sp.id}
                                                         onClick={() => handleSelectTab(sp.id)}
                                                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all ${isActive
-                                                                ? 'bg-indigo-500/15 text-indigo-300 font-medium'
-                                                                : 'text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/40'
+                                                            ? 'bg-indigo-500/15 text-indigo-300 font-medium'
+                                                            : 'text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/40'
                                                             }`}
                                                     >
                                                         <span className={isActive ? 'text-indigo-400' : 'opacity-60'}>{sp.icon}</span>
-                                                        {sp.label}
+                                                        {t( sp.label)}
                                                     </button>
                                                 );
                                             })}
@@ -245,7 +338,7 @@ export default function SettingsView() {
                             onClick={resetSettings}
                             className="w-full h-8 text-xs text-ide-text-secondary hover:text-red-400 hover:bg-red-500/10"
                         >
-                            Reset All Settings
+                            {t('settings.reset')}
                         </Button>
                     </div>
                 </div>
@@ -255,10 +348,10 @@ export default function SettingsView() {
                     {/* Header */}
                     <div className="px-8 pt-6 pb-4 border-b border-ide-border flex-shrink-0">
                         <div className="flex items-center gap-2 text-xs text-ide-text-secondary mb-1">
-                            {activeCategory && <span>{activeCategory.label}</span>}
-                            {activeSubPage && <><ChevronRight className="w-3 h-3" /><span>{activeSubPage.label}</span></>}
+                            {activeCategory && <span>{t( activeCategory.label)}</span>}
+                            {activeSubPage && <><ChevronRight className="w-3 h-3" /><span>{t( activeSubPage.label)}</span></>}
                         </div>
-                        <h1 className="text-xl font-bold text-ide-text-primary">{pageTitle}</h1>
+                        <h1 className="text-xl font-bold text-ide-text-primary">{t( pageTitle)}</h1>
                     </div>
 
                     {/* Settings Content */}
@@ -268,25 +361,25 @@ export default function SettingsView() {
                             {/* ════════════════ TEXT EDITOR ════════════════ */}
 
                             {settingsTab === 'text-editor.general' && (
-                                <SettingSection icon={<FileCode className="w-4 h-4" />} title="General">
-                                    <SettingRow type="number" label="Tab Size" description="The number of spaces a tab is equal to." value={settings.tabSize} min={1} max={8} onChange={v => updateSettings({ tabSize: v })} />
-                                    <SettingRow type="toggle" label="Insert Spaces" description="Insert spaces when pressing Tab." value={settings.insertSpaces} onChange={v => updateSettings({ insertSpaces: v })} />
-                                    <SettingRow type="toggle" label="Auto Save" description="Automatically save files after a delay." value={settings.autoSave} onChange={v => updateSettings({ autoSave: v })} />
-                                    <SettingRow type="number" label="Auto Save Delay" description="Delay in milliseconds before auto-saving." value={settings.autoSaveDelay} min={100} max={10000} step={100} onChange={v => updateSettings({ autoSaveDelay: v })} />
-                                    <SettingRow type="toggle" label="Line Numbers" description="Controls the display of line numbers." value={settings.lineNumbers} onChange={v => updateSettings({ lineNumbers: v })} />
-                                    <SettingRow type="select" label="Render Whitespace" description="Controls how whitespace is rendered." value={settings.renderWhitespace} options={[
-                                        { label: 'None', value: 'none' },
-                                        { label: 'Boundary', value: 'boundary' },
-                                        { label: 'Selection', value: 'selection' },
-                                        { label: 'Trailing', value: 'trailing' },
-                                        { label: 'All', value: 'all' },
+                                <SettingSection icon={<FileCode className="w-4 h-4" />} title={t( 'settings.tab.general')}>
+                                    <SettingRow type="number" label={t( 'settings.label.tabSize')} description={t( 'settings.desc.tabSize')} value={settings.tabSize} min={1} max={8} onChange={v => updateSettings({ tabSize: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.insertSpaces')} description={t( 'settings.desc.insertSpaces')} value={settings.insertSpaces} onChange={v => updateSettings({ insertSpaces: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.autoSave')} description={t( 'settings.desc.autoSave')} value={settings.autoSave} onChange={v => updateSettings({ autoSave: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.autoSaveDelay')} description={t( 'settings.desc.autoSaveDelay')} value={settings.autoSaveDelay} min={100} max={10000} step={100} onChange={v => updateSettings({ autoSaveDelay: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.lineNumbers')} description={t( 'settings.desc.lineNumbers')} value={settings.lineNumbers} onChange={v => updateSettings({ lineNumbers: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.renderWhitespace')} description={t( 'settings.desc.renderWhitespace')} value={settings.renderWhitespace} options={[
+                                        { label: t( 'settings.option.none'), value: 'none' },
+                                        { label: t( 'settings.option.boundary'), value: 'boundary' },
+                                        { label: t( 'settings.option.selection'), value: 'selection' },
+                                        { label: t( 'settings.option.trailing'), value: 'trailing' },
+                                        { label: t( 'settings.option.all'), value: 'all' },
                                     ]} onChange={v => updateSettings({ renderWhitespace: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.font' && (
-                                <SettingSection icon={<Type className="w-4 h-4" />} title="Font">
-                                    <SettingRow type="select" label="Font Family" description="Controls the font family used in the editor." value={settings.fontFamily} options={[
+                                <SettingSection icon={<Type className="w-4 h-4" />} title={t( 'settings.tab.font')}>
+                                    <SettingRow type="select" label={t( 'settings.label.fontFamily')} description={t( 'settings.desc.fontFamily')} value={settings.fontFamily} options={[
                                         { label: 'JetBrains Mono', value: "'JetBrains Mono', 'Fira Code', monospace" },
                                         { label: 'Fira Code', value: "'Fira Code', monospace" },
                                         { label: 'Cascadia Code', value: "'Cascadia Code', monospace" },
@@ -294,245 +387,245 @@ export default function SettingsView() {
                                         { label: 'Source Code Pro', value: "'Source Code Pro', monospace" },
                                         { label: 'IBM Plex Mono', value: "'IBM Plex Mono', monospace" },
                                     ]} onChange={v => updateSettings({ fontFamily: v })} />
-                                    <SettingRow type="slider" label="Font Size" description="Controls the editor font size in pixels." value={settings.fontSize} min={10} max={28} unit="px" onChange={v => updateSettings({ fontSize: v })} />
-                                    <SettingRow type="toggle" label="Font Ligatures" description="Enables/disables font ligatures (e.g., => becomes ⇒)." value={settings.fontLigatures} onChange={v => updateSettings({ fontLigatures: v })} />
-                                    <SettingRow type="slider" label="Line Height" description="Controls the line height." value={settings.lineHeight} min={1} max={3} step={0.1} onChange={v => updateSettings({ lineHeight: v })} />
+                                    <SettingRow type="slider" label={t( 'settings.label.fontSize')} description={t( 'settings.desc.fontSize')} value={settings.fontSize} min={10} max={28} unit="px" onChange={v => updateSettings({ fontSize: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.fontLigatures')} description={t( 'settings.desc.fontLigatures')} value={settings.fontLigatures} onChange={v => updateSettings({ fontLigatures: v })} />
+                                    <SettingRow type="slider" label={t( 'settings.label.lineHeight')} description={t( 'settings.desc.lineHeight')} value={settings.lineHeight} min={1} max={3} step={0.1} onChange={v => updateSettings({ lineHeight: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.formatting' && (
-                                <SettingSection icon={<FileCode className="w-4 h-4" />} title="Formatting">
-                                    <SettingRow type="toggle" label="Format On Save" description="Format code file each time it is saved." value={settings.formatOnSave} onChange={v => updateSettings({ formatOnSave: v })} />
-                                    <SettingRow type="toggle" label="Format On Paste" description="Format pasted content automatically." value={settings.formatOnPaste} onChange={v => updateSettings({ formatOnPaste: v })} />
-                                    <SettingRow type="select" label="Default Formatter" description="Select the default code formatter." value={settings.defaultFormatter} options={[
+                                <SettingSection icon={<FileCode className="w-4 h-4" />} title={t( 'settings.tab.formatting')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.formatOnSave')} description={t( 'settings.desc.formatOnSave')} value={settings.formatOnSave} onChange={v => updateSettings({ formatOnSave: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.formatOnPaste')} description={t( 'settings.desc.formatOnPaste')} value={settings.formatOnPaste} onChange={v => updateSettings({ formatOnPaste: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.defaultFormatter')} description={t( 'settings.desc.defaultFormatter')} value={settings.defaultFormatter} options={[
                                         { label: 'Prettier', value: 'prettier' },
                                         { label: 'ESLint', value: 'eslint' },
-                                        { label: 'None', value: 'none' },
+                                        { label: t( 'settings.option.none'), value: 'none' },
                                     ]} onChange={v => updateSettings({ defaultFormatter: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.cursor' && (
-                                <SettingSection icon={<MousePointer2 className="w-4 h-4" />} title="Cursor">
-                                    <SettingRow type="select" label="Cursor Style" description="Controls the cursor shape." value={settings.cursorStyle} options={[
-                                        { label: 'Line', value: 'line' },
-                                        { label: 'Block', value: 'block' },
-                                        { label: 'Underline', value: 'underline' },
-                                        { label: 'Line Thin', value: 'line-thin' },
-                                        { label: 'Block Outline', value: 'block-outline' },
-                                        { label: 'Underline Thin', value: 'underline-thin' },
+                                <SettingSection icon={<MousePointer2 className="w-4 h-4" />} title={t( 'settings.section.cursor')}>
+                                    <SettingRow type="select" label={t( 'settings.label.cursorStyle')} description={t( 'settings.desc.cursorStyle')} value={settings.cursorStyle} options={[
+                                        { label: t( 'settings.option.line'), value: 'line' },
+                                        { label: t( 'settings.option.block'), value: 'block' },
+                                        { label: t( 'settings.option.underline'), value: 'underline' },
+                                        { label: t( 'settings.option.lineThin'), value: 'line-thin' },
+                                        { label: t( 'settings.option.blockOutline'), value: 'block-outline' },
+                                        { label: t( 'settings.option.underlineThin'), value: 'underline-thin' },
                                     ]} onChange={v => updateSettings({ cursorStyle: v })} />
-                                    <SettingRow type="select" label="Cursor Blinking" description="Controls the cursor animation style." value={settings.cursorBlinking} options={[
-                                        { label: 'Blink', value: 'blink' },
-                                        { label: 'Smooth', value: 'smooth' },
-                                        { label: 'Phase', value: 'phase' },
-                                        { label: 'Expand', value: 'expand' },
-                                        { label: 'Solid', value: 'solid' },
+                                    <SettingRow type="select" label={t( 'settings.label.cursorBlinking')} description={t( 'settings.desc.cursorBlinking')} value={settings.cursorBlinking} options={[
+                                        { label: t( 'settings.option.blink'), value: 'blink' },
+                                        { label: t( 'settings.option.smooth'), value: 'smooth' },
+                                        { label: t( 'settings.option.phase'), value: 'phase' },
+                                        { label: t( 'settings.option.expand'), value: 'expand' },
+                                        { label: t( 'settings.option.solid'), value: 'solid' },
                                     ]} onChange={v => updateSettings({ cursorBlinking: v })} />
-                                    <SettingRow type="toggle" label="Smooth Caret Animation" description="Enables smooth cursor animation." value={settings.cursorSmoothCaret} onChange={v => updateSettings({ cursorSmoothCaret: v })} />
-                                    <SettingRow type="number" label="Cursor Width" description="Width of the cursor in pixels." value={settings.cursorWidth} min={1} max={5} onChange={v => updateSettings({ cursorWidth: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.cursorSmoothCaret')} description={t( 'settings.desc.cursorSmoothCaret')} value={settings.cursorSmoothCaret} onChange={v => updateSettings({ cursorSmoothCaret: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.cursorWidth')} description={t( 'settings.desc.cursorWidth')} value={settings.cursorWidth} min={1} max={5} onChange={v => updateSettings({ cursorWidth: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.minimap' && (
-                                <SettingSection icon={<Map className="w-4 h-4" />} title="Minimap">
-                                    <SettingRow type="toggle" label="Enabled" description="Show the minimap code preview." value={settings.minimap} onChange={v => updateSettings({ minimap: v })} />
-                                    <SettingRow type="slider" label="Scale" description="Scale of the minimap." value={settings.minimapScale} min={1} max={3} onChange={v => updateSettings({ minimapScale: v })} />
-                                    <SettingRow type="number" label="Max Column" description="Limit the width of the minimap." value={settings.minimapMaxColumn} min={40} max={300} step={10} onChange={v => updateSettings({ minimapMaxColumn: v })} />
-                                    <SettingRow type="toggle" label="Render Characters" description="Render actual characters in the minimap." value={settings.minimapRenderChars} onChange={v => updateSettings({ minimapRenderChars: v })} />
+                                <SettingSection icon={<Map className="w-4 h-4" />} title={t( 'settings.section.minimap')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.minimapEnabled')} description={t( 'settings.desc.minimapEnabled')} value={settings.minimap} onChange={v => updateSettings({ minimap: v })} />
+                                    <SettingRow type="slider" label={t( 'settings.label.minimapScale')} description={t( 'settings.desc.minimapScale')} value={settings.minimapScale} min={1} max={3} onChange={v => updateSettings({ minimapScale: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.minimapMaxColumn')} description={t( 'settings.desc.minimapMaxColumn')} value={settings.minimapMaxColumn} min={40} max={300} step={10} onChange={v => updateSettings({ minimapMaxColumn: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.minimapRenderChars')} description={t( 'settings.desc.minimapRenderChars')} value={settings.minimapRenderChars} onChange={v => updateSettings({ minimapRenderChars: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.suggestions' && (
-                                <SettingSection icon={<Lightbulb className="w-4 h-4" />} title="Suggestions">
-                                    <SettingRow type="toggle" label="Suggest On Trigger Characters" description="Show suggestions when trigger characters are typed." value={settings.suggestOnTriggerCharacters} onChange={v => updateSettings({ suggestOnTriggerCharacters: v })} />
-                                    <SettingRow type="toggle" label="Quick Suggestions" description="Enable suggestions while typing." value={settings.quickSuggestions} onChange={v => updateSettings({ quickSuggestions: v })} />
-                                    <SettingRow type="toggle" label="Inline Suggestions" description="Show ghost-text inline completions." value={settings.inlineSuggestions} onChange={v => updateSettings({ inlineSuggestions: v })} />
-                                    <SettingRow type="select" label="Accept Suggestion On Enter" description="Accept suggestions with Enter key." value={settings.acceptSuggestionOnEnter} options={[
-                                        { label: 'On', value: 'on' },
-                                        { label: 'Smart', value: 'smart' },
-                                        { label: 'Off', value: 'off' },
+                                <SettingSection icon={<Lightbulb className="w-4 h-4" />} title={t( 'settings.section.suggestions')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.suggestOnTriggerCharacters')} description={t( 'settings.desc.suggestOnTriggerCharacters')} value={settings.suggestOnTriggerCharacters} onChange={v => updateSettings({ suggestOnTriggerCharacters: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.quickSuggestions')} description={t( 'settings.desc.quickSuggestions')} value={settings.quickSuggestions} onChange={v => updateSettings({ quickSuggestions: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.inlineSuggestions')} description={t( 'settings.desc.inlineSuggestions')} value={settings.inlineSuggestions} onChange={v => updateSettings({ inlineSuggestions: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.acceptSuggestionOnEnter')} description={t( 'settings.desc.acceptSuggestionOnEnter')} value={settings.acceptSuggestionOnEnter} options={[
+                                        { label: t( 'settings.option.on'), value: 'on' },
+                                        { label: t( 'settings.option.smart'), value: 'smart' },
+                                        { label: t( 'settings.option.off'), value: 'off' },
                                     ]} onChange={v => updateSettings({ acceptSuggestionOnEnter: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.folding' && (
-                                <SettingSection icon={<FoldVertical className="w-4 h-4" />} title="Code Folding">
-                                    <SettingRow type="toggle" label="Folding" description="Enable code folding." value={settings.codeFolding} onChange={v => updateSettings({ codeFolding: v })} />
-                                    <SettingRow type="select" label="Folding Strategy" description="Select the folding strategy." value={settings.foldingStrategy} options={[
-                                        { label: 'Auto', value: 'auto' },
-                                        { label: 'Indentation', value: 'indentation' },
+                                <SettingSection icon={<FoldVertical className="w-4 h-4" />} title={t( 'settings.section.folding')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.codeFolding')} description={t( 'settings.desc.codeFolding')} value={settings.codeFolding} onChange={v => updateSettings({ codeFolding: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.foldingStrategy')} description={t( 'settings.desc.foldingStrategy')} value={settings.foldingStrategy} options={[
+                                        { label: t( 'settings.option.auto'), value: 'auto' },
+                                        { label: t( 'settings.option.indentation'), value: 'indentation' },
                                     ]} onChange={v => updateSettings({ foldingStrategy: v })} />
-                                    <SettingRow type="select" label="Show Folding Controls" description="When to show folding controls." value={settings.showFoldingControls} options={[
-                                        { label: 'Always', value: 'always' },
-                                        { label: 'Mouse Over', value: 'mouseover' },
-                                        { label: 'Never', value: 'never' },
+                                    <SettingRow type="select" label={t( 'settings.label.showFoldingControls')} description={t( 'settings.desc.showFoldingControls')} value={settings.showFoldingControls} options={[
+                                        { label: t( 'settings.option.always'), value: 'always' },
+                                        { label: t( 'settings.option.mouseover'), value: 'mouseover' },
+                                        { label: t( 'settings.option.never'), value: 'never' },
                                     ]} onChange={v => updateSettings({ showFoldingControls: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.brackets' && (
-                                <SettingSection icon={<Braces className="w-4 h-4" />} title="Brackets">
-                                    <SettingRow type="select" label="Auto Close Brackets" description="Controls auto-closing of brackets." value={settings.autoCloseBrackets} options={[
-                                        { label: 'Always', value: 'always' },
-                                        { label: 'Language Defined', value: 'languageDefined' },
-                                        { label: 'Before Whitespace', value: 'beforeWhitespace' },
-                                        { label: 'Never', value: 'never' },
+                                <SettingSection icon={<Braces className="w-4 h-4" />} title={t( 'settings.section.brackets')}>
+                                    <SettingRow type="select" label={t( 'settings.label.autoCloseBrackets')} description={t( 'settings.desc.autoCloseBrackets')} value={settings.autoCloseBrackets} options={[
+                                        { label: t( 'settings.option.always'), value: 'always' },
+                                        { label: t( 'settings.option.languageDefined'), value: 'languageDefined' },
+                                        { label: t( 'settings.option.beforeWhitespace'), value: 'beforeWhitespace' },
+                                        { label: t( 'settings.option.never'), value: 'never' },
                                     ]} onChange={v => updateSettings({ autoCloseBrackets: v })} />
-                                    <SettingRow type="toggle" label="Bracket Pair Colorization" description="Color matching bracket pairs." value={settings.bracketPairColorization} onChange={v => updateSettings({ bracketPairColorization: v })} />
-                                    <SettingRow type="toggle" label="Bracket Pair Guides" description="Show bracket pair guides." value={settings.bracketPairGuides} onChange={v => updateSettings({ bracketPairGuides: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.bracketPairColorization')} description={t( 'settings.desc.bracketPairColorization')} value={settings.bracketPairColorization} onChange={v => updateSettings({ bracketPairColorization: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.bracketPairGuides')} description={t( 'settings.desc.bracketPairGuides')} value={settings.bracketPairGuides} onChange={v => updateSettings({ bracketPairGuides: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.indentation' && (
-                                <SettingSection icon={<IndentIncrease className="w-4 h-4" />} title="Indentation">
-                                    <SettingRow type="toggle" label="Detect Indentation" description="Auto-detect tab/spaces from file content." value={settings.detectIndentation} onChange={v => updateSettings({ detectIndentation: v })} />
-                                    <SettingRow type="select" label="Auto Indent" description="Controls automatic indentation." value={settings.autoIndent} options={[
-                                        { label: 'None', value: 'none' },
-                                        { label: 'Keep', value: 'keep' },
-                                        { label: 'Brackets', value: 'brackets' },
-                                        { label: 'Advanced', value: 'advanced' },
-                                        { label: 'Full', value: 'full' },
+                                <SettingSection icon={<IndentIncrease className="w-4 h-4" />} title={t( 'settings.section.indentation')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.detectIndentation')} description={t( 'settings.desc.detectIndentation')} value={settings.detectIndentation} onChange={v => updateSettings({ detectIndentation: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.autoIndent')} description={t( 'settings.desc.autoIndent')} value={settings.autoIndent} options={[
+                                        { label: t( 'settings.option.none'), value: 'none' },
+                                        { label: t( 'settings.option.keep'), value: 'keep' },
+                                        { label: t( 'settings.option.brackets'), value: 'brackets' },
+                                        { label: t( 'settings.option.advanced'), value: 'advanced' },
+                                        { label: t( 'settings.option.full'), value: 'full' },
                                     ]} onChange={v => updateSettings({ autoIndent: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.wordwrap' && (
-                                <SettingSection icon={<WrapText className="w-4 h-4" />} title="Word Wrap">
-                                    <SettingRow type="toggle" label="Word Wrap" description="Wrap long lines at viewport or column." value={settings.wordWrap} onChange={v => updateSettings({ wordWrap: v })} />
-                                    <SettingRow type="number" label="Word Wrap Column" description="Wrap at this column when word wrap is enabled." value={settings.wordWrapColumn} min={40} max={200} step={10} onChange={v => updateSettings({ wordWrapColumn: v })} />
+                                <SettingSection icon={<WrapText className="w-4 h-4" />} title={t( 'settings.section.wordwrap')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.wordWrap')} description={t( 'settings.desc.wordWrap')} value={settings.wordWrap} onChange={v => updateSettings({ wordWrap: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.wordWrapColumn')} description={t( 'settings.desc.wordWrapColumn')} value={settings.wordWrapColumn} min={40} max={200} step={10} onChange={v => updateSettings({ wordWrapColumn: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.multicursor' && (
-                                <SettingSection icon={<Pointer className="w-4 h-4" />} title="Multi Cursor">
-                                    <SettingRow type="select" label="Multi Cursor Modifier" description="Modifier key for adding cursors." value={settings.multiCursorModifier} options={[
-                                        { label: 'Alt', value: 'alt' },
-                                        { label: 'Ctrl / Cmd', value: 'ctrlCmd' },
+                                <SettingSection icon={<Pointer className="w-4 h-4" />} title={t( 'settings.section.multicursor')}>
+                                    <SettingRow type="select" label={t( 'settings.label.multiCursorModifier')} description={t( 'settings.desc.multiCursorModifier')} value={settings.multiCursorModifier} options={[
+                                        { label: t( 'settings.option.alt'), value: 'alt' },
+                                        { label: t( 'settings.option.ctrlCmd'), value: 'ctrlCmd' },
                                     ]} onChange={v => updateSettings({ multiCursorModifier: v })} />
-                                    <SettingRow type="select" label="Multi Cursor Paste" description="Controls pasting with multiple cursors." value={settings.multiCursorPaste} options={[
-                                        { label: 'Spread', value: 'spread' },
-                                        { label: 'Full', value: 'full' },
+                                    <SettingRow type="select" label={t( 'settings.label.multiCursorPaste')} description={t( 'settings.desc.multiCursorPaste')} value={settings.multiCursorPaste} options={[
+                                        { label: t( 'settings.option.spread'), value: 'spread' },
+                                        { label: t( 'settings.option.full'), value: 'full' },
                                     ]} onChange={v => updateSettings({ multiCursorPaste: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.stickyscroll' && (
-                                <SettingSection icon={<StickyNote className="w-4 h-4" />} title="Sticky Scroll">
-                                    <SettingRow type="toggle" label="Sticky Scroll" description="Show current scope at the top of the editor." value={settings.stickyScroll} onChange={v => updateSettings({ stickyScroll: v })} />
-                                    <SettingRow type="number" label="Max Lines" description="Maximum number of sticky lines." value={settings.stickyScrollMaxLines} min={1} max={10} onChange={v => updateSettings({ stickyScrollMaxLines: v })} />
+                                <SettingSection icon={<StickyNote className="w-4 h-4" />} title={t( 'settings.section.stickyscroll')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.stickyScroll')} description={t( 'settings.desc.stickyScroll')} value={settings.stickyScroll} onChange={v => updateSettings({ stickyScroll: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.stickyScrollMaxLines')} description={t( 'settings.desc.stickyScrollMaxLines')} value={settings.stickyScrollMaxLines} min={1} max={10} onChange={v => updateSettings({ stickyScrollMaxLines: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'text-editor.diff' && (
-                                <SettingSection icon={<GitCompare className="w-4 h-4" />} title="Diff Editor">
-                                    <SettingRow type="toggle" label="Side by Side" description="Show diff in side-by-side view." value={settings.diffEditorSideBySide} onChange={v => updateSettings({ diffEditorSideBySide: v })} />
-                                    <SettingRow type="toggle" label="Ignore Whitespace" description="Ignore whitespace changes in diff." value={settings.diffEditorIgnoreWhitespace} onChange={v => updateSettings({ diffEditorIgnoreWhitespace: v })} />
+                                <SettingSection icon={<GitCompare className="w-4 h-4" />} title={t( 'settings.section.diff')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.diffEditorSideBySide')} description={t( 'settings.desc.diffEditorSideBySide')} value={settings.diffEditorSideBySide} onChange={v => updateSettings({ diffEditorSideBySide: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.diffEditorIgnoreWhitespace')} description={t( 'settings.desc.diffEditorIgnoreWhitespace')} value={settings.diffEditorIgnoreWhitespace} onChange={v => updateSettings({ diffEditorIgnoreWhitespace: v })} />
                                 </SettingSection>
                             )}
 
                             {/* ════════════════ WORKBENCH ════════════════ */}
 
                             {settingsTab === 'workbench.appearance' && (
-                                <SettingSection icon={<Eye className="w-4 h-4" />} title="Appearance">
-                                    <SettingRow type="select" label="Color Theme" description="Select the IDE color theme." value={settings.theme} options={[
+                                <SettingSection icon={<Eye className="w-4 h-4" />} title={t( 'settings.section.appearance')}>
+                                    <SettingRow type="select" label={t( 'settings.label.theme')} description={t( 'settings.desc.theme')} value={settings.theme} options={[
                                         { label: 'Deep Night', value: 'deep-night' },
                                         { label: 'Snowy Studio (Light)', value: 'snowy-studio' },
                                         { label: 'Catppuccin Mocha', value: 'catppuccin-mocha' },
                                         { label: 'Dracula', value: 'dracula' },
                                         { label: 'One Dark Pro', value: 'one-dark-pro' },
                                     ]} onChange={v => updateSettings({ theme: v })} />
-                                    <SettingRow type="select" label="Icon Theme" description="Select the file icon theme." value={settings.iconTheme} options={[
+                                    <SettingRow type="select" label={t( 'settings.label.iconTheme')} description={t( 'settings.desc.iconTheme')} value={settings.iconTheme} options={[
                                         { label: 'Material Icon Theme', value: 'material-icon-theme' },
                                         { label: 'VS Code Icons', value: 'vscode-icons' },
-                                        { label: 'None', value: 'none' },
+                                        { label: t( 'settings.option.none'), value: 'none' },
                                     ]} onChange={v => updateSettings({ iconTheme: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'workbench.breadcrumbs' && (
-                                <SettingSection icon={<Navigation className="w-4 h-4" />} title="Breadcrumbs">
-                                    <SettingRow type="toggle" label="Enable Breadcrumbs" description="Show breadcrumb navigation above the editor." value={settings.breadcrumbs} onChange={v => updateSettings({ breadcrumbs: v })} />
+                                <SettingSection icon={<Navigation className="w-4 h-4" />} title={t( 'settings.section.breadcrumbs')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.breadcrumbs')} description={t( 'settings.desc.breadcrumbs')} value={settings.breadcrumbs} onChange={v => updateSettings({ breadcrumbs: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'workbench.editor' && (
-                                <SettingSection icon={<Columns className="w-4 h-4" />} title="Editor Management">
-                                    <SettingRow type="toggle" label="Enable Preview" description="Preview files on single click (close when opening another)." value={settings.editorPreviewMode} onChange={v => updateSettings({ editorPreviewMode: v })} />
-                                    <SettingRow type="select" label="Tab Close Button" description="Position of the close button on tabs." value={settings.editorTabCloseButton} options={[
-                                        { label: 'Right', value: 'right' },
-                                        { label: 'Left', value: 'left' },
-                                        { label: 'Off', value: 'off' },
+                                <SettingSection icon={<Columns className="w-4 h-4" />} title={t( 'settings.section.editor')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.editorPreviewMode')} description={t( 'settings.desc.editorPreviewMode')} value={settings.editorPreviewMode} onChange={v => updateSettings({ editorPreviewMode: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.editorTabCloseButton')} description={t( 'settings.desc.editorTabCloseButton')} value={settings.editorTabCloseButton} options={[
+                                        { label: t( 'settings.option.right'), value: 'right' },
+                                        { label: t( 'settings.option.left'), value: 'left' },
+                                        { label: t( 'settings.option.off'), value: 'off' },
                                     ]} onChange={v => updateSettings({ editorTabCloseButton: v })} />
-                                    <SettingRow type="toggle" label="Open Side by Side" description="Open new editors beside the current one." value={settings.editorOpenSideBySide} onChange={v => updateSettings({ editorOpenSideBySide: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.editorOpenSideBySide')} description={t( 'settings.desc.editorOpenSideBySide')} value={settings.editorOpenSideBySide} onChange={v => updateSettings({ editorOpenSideBySide: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'workbench.zen' && (
-                                <SettingSection icon={<Sun className="w-4 h-4" />} title="Zen Mode">
-                                    <SettingRow type="toggle" label="Zen Mode" description="Enable distraction-free coding mode." value={settings.zenMode} onChange={v => updateSettings({ zenMode: v })} />
+                                <SettingSection icon={<Sun className="w-4 h-4" />} title={t( 'settings.section.zen')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.zenMode')} description={t( 'settings.desc.zenMode')} value={settings.zenMode} onChange={v => updateSettings({ zenMode: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'workbench.screencast' && (
-                                <SettingSection icon={<MonitorSmartphone className="w-4 h-4" />} title="Screencast Mode">
-                                    <SettingRow type="toggle" label="Screencast Mode" description="Show keyboard shortcuts on screen (for presentations)." value={settings.screencastMode} onChange={v => updateSettings({ screencastMode: v })} />
+                                <SettingSection icon={<MonitorSmartphone className="w-4 h-4" />} title={t( 'settings.section.screencast')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.screencastMode')} description={t( 'settings.desc.screencastMode')} value={settings.screencastMode} onChange={v => updateSettings({ screencastMode: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'workbench.layout' && (
-                                <SettingSection icon={<LayoutDashboard className="w-4 h-4" />} title="Layout">
-                                    <SettingRow type="select" label="Sidebar Position" description="Position of the sidebar." value={settings.layoutSidebarPosition} options={[
-                                        { label: 'Left', value: 'left' },
-                                        { label: 'Right', value: 'right' },
+                                <SettingSection icon={<LayoutDashboard className="w-4 h-4" />} title={t( 'settings.section.layout')}>
+                                    <SettingRow type="select" label={t( 'settings.label.sidebarPosition')} description={t( 'settings.desc.sidebarPosition')} value={settings.layoutSidebarPosition} options={[
+                                        { label: t( 'settings.option.left'), value: 'left' },
+                                        { label: t( 'settings.option.right'), value: 'right' },
                                     ]} onChange={v => updateSettings({ layoutSidebarPosition: v })} />
-                                    <SettingRow type="toggle" label="Activity Bar Visible" description="Show the activity bar." value={settings.layoutActivityBarVisible} onChange={v => updateSettings({ layoutActivityBarVisible: v })} />
-                                    <SettingRow type="toggle" label="Status Bar Visible" description="Show the status bar." value={settings.layoutStatusBarVisible} onChange={v => updateSettings({ layoutStatusBarVisible: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.activityBarVisible')} description={t( 'settings.desc.activityBarVisible')} value={settings.layoutActivityBarVisible} onChange={v => updateSettings({ layoutActivityBarVisible: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.statusBarVisible')} description={t( 'settings.desc.statusBarVisible')} value={settings.layoutStatusBarVisible} onChange={v => updateSettings({ layoutStatusBarVisible: v })} />
                                 </SettingSection>
                             )}
 
                             {/* ════════════════ WINDOW ════════════════ */}
 
                             {settingsTab === 'window.startup' && (
-                                <SettingSection icon={<Maximize className="w-4 h-4" />} title="Startup">
-                                    <SettingRow type="select" label="Restore Windows" description="Controls how windows are restored after restart." value={settings.restoreWindows} options={[
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Folders', value: 'folders' },
-                                        { label: 'One', value: 'one' },
-                                        { label: 'None', value: 'none' },
+                                <SettingSection icon={<Maximize className="w-4 h-4" />} title={t( 'settings.section.startup')}>
+                                    <SettingRow type="select" label={t( 'settings.label.restoreWindows')} description={t( 'settings.desc.restoreWindows')} value={settings.restoreWindows} options={[
+                                        { label: t( 'settings.option.all'), value: 'all' },
+                                        { label: t( 'settings.option.folders'), value: 'folders' },
+                                        { label: t( 'settings.option.one'), value: 'one' },
+                                        { label: t( 'settings.option.none'), value: 'none' },
                                     ]} onChange={v => updateSettings({ restoreWindows: v })} />
-                                    <SettingRow type="select" label="New Window Dimensions" description="Size of new windows." value={settings.newWindowDimensions} options={[
-                                        { label: 'Default', value: 'default' },
-                                        { label: 'Inherit', value: 'inherit' },
-                                        { label: 'Offset', value: 'offset' },
-                                        { label: 'Maximized', value: 'maximized' },
-                                        { label: 'Fullscreen', value: 'fullscreen' },
+                                    <SettingRow type="select" label={t( 'settings.label.newWindowDimensions')} description={t( 'settings.desc.newWindowDimensions')} value={settings.newWindowDimensions} options={[
+                                        { label: t( 'settings.option.default'), value: 'default' },
+                                        { label: t( 'settings.option.inherit'), value: 'inherit' },
+                                        { label: t( 'settings.option.offset'), value: 'offset' },
+                                        { label: t( 'settings.option.maximized'), value: 'maximized' },
+                                        { label: t( 'settings.option.fullscreen'), value: 'fullscreen' },
                                     ]} onChange={v => updateSettings({ newWindowDimensions: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'window.zoom' && (
-                                <SettingSection icon={<ZoomIn className="w-4 h-4" />} title="Zoom">
-                                    <SettingRow type="slider" label="Zoom Level" description="Controls the overall UI zoom level." value={settings.zoomLevel} min={-3} max={5} step={0.5} onChange={v => updateSettings({ zoomLevel: v })} />
+                                <SettingSection icon={<ZoomIn className="w-4 h-4" />} title={t( 'settings.section.zoom')}>
+                                    <SettingRow type="slider" label={t( 'settings.label.zoomLevel')} description={t( 'settings.desc.zoomLevel')} value={settings.zoomLevel} min={-3} max={5} step={0.5} onChange={v => updateSettings({ zoomLevel: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'window.title' && (
-                                <SettingSection icon={<PanelTop className="w-4 h-4" />} title="Window Title">
-                                    <SettingRow type="select" label="Title Bar Style" description="Controls the title bar style." value={settings.titleBarStyle} options={[
-                                        { label: 'Custom', value: 'custom' },
-                                        { label: 'Native', value: 'native' },
+                                <SettingSection icon={<PanelTop className="w-4 h-4" />} title={t( 'settings.section.title')}>
+                                    <SettingRow type="select" label={t( 'settings.label.titleBarStyle')} description={t( 'settings.desc.titleBarStyle')} value={settings.titleBarStyle} options={[
+                                        { label: t( 'settings.option.custom'), value: 'custom' },
+                                        { label: t( 'settings.option.native'), value: 'native' },
                                     ]} onChange={v => updateSettings({ titleBarStyle: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'window.menu' && (
-                                <SettingSection icon={<Menu className="w-4 h-4" />} title="Menu Visibility">
-                                    <SettingRow type="select" label="Menu Bar Visibility" description="Controls menu bar visibility." value={settings.menuBarVisibility} options={[
-                                        { label: 'Visible', value: 'visible' },
-                                        { label: 'Toggle', value: 'toggle' },
-                                        { label: 'Hidden', value: 'hidden' },
-                                        { label: 'Compact', value: 'compact' },
+                                <SettingSection icon={<Menu className="w-4 h-4" />} title={t( 'settings.section.menu')}>
+                                    <SettingRow type="select" label={t( 'settings.label.menuBarVisibility')} description={t( 'settings.desc.menuBarVisibility')} value={settings.menuBarVisibility} options={[
+                                        { label: t( 'settings.option.visible'), value: 'visible' },
+                                        { label: t( 'settings.option.toggle'), value: 'toggle' },
+                                        { label: t( 'settings.option.hidden'), value: 'hidden' },
+                                        { label: t( 'settings.option.compact'), value: 'compact' },
                                     ]} onChange={v => updateSettings({ menuBarVisibility: v })} />
                                 </SettingSection>
                             )}
@@ -540,121 +633,144 @@ export default function SettingsView() {
                             {/* ════════════════ FEATURES ════════════════ */}
 
                             {settingsTab === 'features.terminal' && (
-                                <SettingSection icon={<Terminal className="w-4 h-4" />} title="Terminal">
-                                    <SettingRow type="slider" label="Font Size" description="Controls terminal font size." value={settings.terminalFontSize} min={8} max={24} unit="px" onChange={v => updateSettings({ terminalFontSize: v })} />
-                                    <SettingRow type="select" label="Font Family" description="Terminal font family." value={settings.terminalFontFamily} options={[
+                                <SettingSection icon={<Terminal className="w-4 h-4" />} title={t( 'settings.section.terminal')}>
+                                    <SettingRow type="slider" label={t( 'settings.label.terminalFontSize')} description={t( 'settings.desc.terminalFontSize')} value={settings.terminalFontSize} min={8} max={24} unit="px" onChange={v => updateSettings({ terminalFontSize: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.terminalFontFamily')} description={t( 'settings.desc.terminalFontFamily')} value={settings.terminalFontFamily} options={[
                                         { label: 'Cascadia Code', value: "'Cascadia Code', 'Fira Code', monospace" },
                                         { label: 'JetBrains Mono', value: "'JetBrains Mono', monospace" },
                                         { label: 'Fira Code', value: "'Fira Code', monospace" },
                                         { label: 'Consolas', value: "'Consolas', monospace" },
                                     ]} onChange={v => updateSettings({ terminalFontFamily: v })} />
-                                    <SettingRow type="toggle" label="Cursor Blinking" description="Enable cursor blinking in terminal." value={settings.terminalCursorBlinking} onChange={v => updateSettings({ terminalCursorBlinking: v })} />
-                                    <SettingRow type="select" label="Cursor Style" description="Terminal cursor shape." value={settings.terminalCursorStyle} options={[
-                                        { label: 'Bar', value: 'bar' },
-                                        { label: 'Block', value: 'block' },
-                                        { label: 'Underline', value: 'underline' },
+                                    <SettingRow type="toggle" label={t( 'settings.label.terminalCursorBlinking')} description={t( 'settings.desc.terminalCursorBlinking')} value={settings.terminalCursorBlinking} onChange={v => updateSettings({ terminalCursorBlinking: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.terminalCursorStyle')} description={t( 'settings.desc.terminalCursorStyle')} value={settings.terminalCursorStyle} options={[
+                                        { label: t( 'settings.option.bar'), value: 'bar' },
+                                        { label: t( 'settings.option.block'), value: 'block' },
+                                        { label: t( 'settings.option.underline'), value: 'underline' },
                                     ]} onChange={v => updateSettings({ terminalCursorStyle: v })} />
-                                    <SettingRow type="select" label="Default Profile" description="Default shell profile." value={settings.terminalDefaultProfile} options={[
+                                    <SettingRow type="select" label={t( 'settings.label.terminalDefaultProfile')} description={t( 'settings.desc.terminalDefaultProfile')} value={settings.terminalDefaultProfile} options={[
                                         { label: 'PowerShell', value: 'PowerShell' },
                                         { label: 'Git Bash', value: 'Git Bash' },
                                         { label: 'Command Prompt', value: 'Command Prompt' },
                                         { label: 'WSL', value: 'Ubuntu (WSL)' },
                                     ]} onChange={v => updateSettings({ terminalDefaultProfile: v })} />
-                                    <SettingRow type="number" label="Scrollback" description="Number of lines kept in terminal buffer." value={settings.terminalScrollback} min={1000} max={100000} step={1000} onChange={v => updateSettings({ terminalScrollback: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.terminalScrollback')} description={t( 'settings.desc.terminalScrollback')} value={settings.terminalScrollback} min={1000} max={100000} step={1000} onChange={v => updateSettings({ terminalScrollback: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.explorer' && (
-                                <SettingSection icon={<FolderOpen className="w-4 h-4" />} title="Explorer">
-                                    <SettingRow type="toggle" label="Auto Reveal" description="Reveal file in explorer when opened." value={settings.explorerAutoReveal} onChange={v => updateSettings({ explorerAutoReveal: v })} />
-                                    <SettingRow type="select" label="Sort Order" description="File sort order in explorer." value={settings.explorerSortOrder} options={[
-                                        { label: 'Default', value: 'default' },
-                                        { label: 'Mixed', value: 'mixed' },
-                                        { label: 'Files First', value: 'filesFirst' },
-                                        { label: 'Type', value: 'type' },
-                                        { label: 'Modified', value: 'modified' },
+                                <SettingSection icon={<FolderOpen className="w-4 h-4" />} title={t( 'settings.section.explorer')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.explorerAutoReveal')} description={t( 'settings.desc.explorerAutoReveal')} value={settings.explorerAutoReveal} onChange={v => updateSettings({ explorerAutoReveal: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.explorerSortOrder')} description={t( 'settings.desc.explorerSortOrder')} value={settings.explorerSortOrder} options={[
+                                        { label: t( 'settings.option.default'), value: 'default' },
+                                        { label: t( 'settings.option.mixed'), value: 'mixed' },
+                                        { label: t( 'settings.option.filesFirst'), value: 'filesFirst' },
+                                        { label: t( 'settings.option.type'), value: 'type' },
+                                        { label: t( 'settings.option.modified'), value: 'modified' },
                                     ]} onChange={v => updateSettings({ explorerSortOrder: v })} />
-                                    <SettingRow type="toggle" label="Compact Folders" description="Render single-child folders inline." value={settings.explorerCompactFolders} onChange={v => updateSettings({ explorerCompactFolders: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.explorerCompactFolders')} description={t( 'settings.desc.explorerCompactFolders')} value={settings.explorerCompactFolders} onChange={v => updateSettings({ explorerCompactFolders: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.search' && (
-                                <SettingSection icon={<SearchIcon className="w-4 h-4" />} title="Search">
-                                    <SettingRow type="input" label="Exclude Pattern" description="Glob patterns to exclude from search." value={settings.searchExcludePattern} onChange={v => updateSettings({ searchExcludePattern: v })} />
-                                    <SettingRow type="toggle" label="Use Ignore Files" description="Respect .gitignore and .ignore files." value={settings.searchUseIgnoreFiles} onChange={v => updateSettings({ searchUseIgnoreFiles: v })} />
-                                    <SettingRow type="toggle" label="Smart Case" description="Case-insensitive unless uppercase is used." value={settings.searchSmartCase} onChange={v => updateSettings({ searchSmartCase: v })} />
+                                <SettingSection icon={<SearchIcon className="w-4 h-4" />} title={t( 'settings.section.search')}>
+                                    <SettingRow type="input" label={t( 'settings.label.searchExcludePattern')} description={t( 'settings.desc.searchExcludePattern')} value={settings.searchExcludePattern} onChange={v => updateSettings({ searchExcludePattern: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.searchUseIgnoreFiles')} description={t( 'settings.desc.searchUseIgnoreFiles')} value={settings.searchUseIgnoreFiles} onChange={v => updateSettings({ searchUseIgnoreFiles: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.searchSmartCase')} description={t( 'settings.desc.searchSmartCase')} value={settings.searchSmartCase} onChange={v => updateSettings({ searchSmartCase: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.debug' && (
-                                <SettingSection icon={<Bug className="w-4 h-4" />} title="Debug">
-                                    <SettingRow type="select" label="Open On Start" description="When to open the debug view." value={settings.debugOpenOnStart} options={[
-                                        { label: 'On First Session', value: 'openOnFirstSessionStart' },
-                                        { label: 'On Every Session', value: 'openOnSessionStart' },
-                                        { label: 'Never', value: 'neverOpen' },
+                                <SettingSection icon={<Bug className="w-4 h-4" />} title={t( 'settings.section.debug')}>
+                                    <SettingRow type="select" label={t( 'settings.label.debugOpenOnStart')} description={t( 'settings.desc.debugOpenOnStart')} value={settings.debugOpenOnStart} options={[
+                                        { label: t( 'settings.option.onFirstSession'), value: 'openOnFirstSessionStart' },
+                                        { label: t( 'settings.option.onEverySession'), value: 'openOnSessionStart' },
+                                        { label: t( 'settings.option.never'), value: 'neverOpen' },
                                     ]} onChange={v => updateSettings({ debugOpenOnStart: v })} />
-                                    <SettingRow type="toggle" label="Inline Values" description="Show variable values inline during debugging." value={settings.debugInlineValues} onChange={v => updateSettings({ debugInlineValues: v })} />
-                                    <SettingRow type="select" label="Toolbar Location" description="Debug toolbar position." value={settings.debugToolBarLocation} options={[
-                                        { label: 'Floating', value: 'floating' },
-                                        { label: 'Docked', value: 'docked' },
-                                        { label: 'Hidden', value: 'hidden' },
+                                    <SettingRow type="toggle" label={t( 'settings.label.debugInlineValues')} description={t( 'settings.desc.debugInlineValues')} value={settings.debugInlineValues} onChange={v => updateSettings({ debugInlineValues: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.debugToolBarLocation')} description={t( 'settings.desc.debugToolBarLocation')} value={settings.debugToolBarLocation} options={[
+                                        { label: t( 'settings.option.floating'), value: 'floating' },
+                                        { label: t( 'settings.option.docked'), value: 'docked' },
+                                        { label: t( 'settings.option.hidden'), value: 'hidden' },
                                     ]} onChange={v => updateSettings({ debugToolBarLocation: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.sourcecontrol' && (
-                                <SettingSection icon={<GitBranch className="w-4 h-4" />} title="Source Control">
-                                    <SettingRow type="toggle" label="Auto Fetch" description="Periodically fetch from remotes." value={settings.sourceControlAutoFetch} onChange={v => updateSettings({ sourceControlAutoFetch: v })} />
-                                    <SettingRow type="toggle" label="Auto Refresh" description="Auto-refresh the source control view." value={settings.sourceControlAutoRefresh} onChange={v => updateSettings({ sourceControlAutoRefresh: v })} />
-                                    <SettingRow type="select" label="Diff Decorations" description="Show diff decorations in the editor gutter." value={settings.sourceControlDiffDecorations} options={[
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Gutter', value: 'gutter' },
-                                        { label: 'Overview', value: 'overview' },
-                                        { label: 'Minimap', value: 'minimap' },
-                                        { label: 'None', value: 'none' },
+                                <SettingSection icon={<GitBranch className="w-4 h-4" />} title={t( 'settings.section.sourcecontrol')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.scmAutoFetch')} description={t( 'settings.desc.scmAutoFetch')} value={settings.sourceControlAutoFetch} onChange={v => updateSettings({ sourceControlAutoFetch: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.scmAutoRefresh')} description={t( 'settings.desc.scmAutoRefresh')} value={settings.sourceControlAutoRefresh} onChange={v => updateSettings({ sourceControlAutoRefresh: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.scmDiffDecorations')} description={t( 'settings.desc.scmDiffDecorations')} value={settings.sourceControlDiffDecorations} options={[
+                                        { label: t( 'settings.option.all'), value: 'all' },
+                                        { label: t( 'settings.option.gutter'), value: 'gutter' },
+                                        { label: t( 'settings.option.overview'), value: 'overview' },
+                                        { label: t( 'settings.option.minimap'), value: 'minimap' },
+                                        { label: t( 'settings.option.none'), value: 'none' },
                                     ]} onChange={v => updateSettings({ sourceControlDiffDecorations: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.problems' && (
-                                <SettingSection icon={<AlertCircle className="w-4 h-4" />} title="Problems">
-                                    <SettingRow type="toggle" label="Auto Reveal" description="Reveal problems on file open." value={settings.problemsAutoReveal} onChange={v => updateSettings({ problemsAutoReveal: v })} />
-                                    <SettingRow type="toggle" label="Show Current File Only" description="Filter problems to current file." value={settings.problemsShowCurrentOnly} onChange={v => updateSettings({ problemsShowCurrentOnly: v })} />
+                                <SettingSection icon={<AlertCircle className="w-4 h-4" />} title={t( 'settings.section.problems')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.problemsAutoReveal')} description={t( 'settings.desc.problemsAutoReveal')} value={settings.problemsAutoReveal} onChange={v => updateSettings({ problemsAutoReveal: v })} />
+                                    <SettingRow type="toggle" label={t( 'settings.label.problemsShowCurrentOnly')} description={t( 'settings.desc.problemsShowCurrentOnly')} value={settings.problemsShowCurrentOnly} onChange={v => updateSettings({ problemsShowCurrentOnly: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.tasks' && (
-                                <SettingSection icon={<ListChecks className="w-4 h-4" />} title="Tasks">
-                                    <SettingRow type="select" label="Auto Detect" description="Auto-detect build tasks (npm, make, etc.)." value={settings.taskAutoDetect} options={[
-                                        { label: 'On', value: 'on' },
-                                        { label: 'Off', value: 'off' },
+                                <SettingSection icon={<ListChecks className="w-4 h-4" />} title={t( 'settings.section.tasks')}>
+                                    <SettingRow type="select" label={t( 'settings.label.taskAutoDetect')} description={t( 'settings.desc.taskAutoDetect')} value={settings.taskAutoDetect} options={[
+                                        { label: t( 'settings.option.on'), value: 'on' },
+                                        { label: t( 'settings.option.off'), value: 'off' },
                                     ]} onChange={v => updateSettings({ taskAutoDetect: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'features.ai' && (
                                 <>
-                                    <SettingSection icon={<Bot className="w-4 h-4" />} title="AI Assistant">
-                                        <SettingRow type="select" label="Active Model" description="Ollama model for code generation." value={settings.aiModel} options={[
-                                            { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' },
-                                            { label: 'Qwen 2.5 Coder 14B', value: 'qwen2.5-coder:14b' },
-                                            { label: 'Llama 3 8B', value: 'llama3:8b' },
-                                            { label: 'Code Llama 7B', value: 'codellama:7b' },
-                                            { label: 'DeepSeek Coder 6.7B', value: 'deepseek-coder:6.7b' },
-                                            { label: 'Mistral 7B', value: 'mistral:7b' },
-                                        ]} onChange={v => updateSettings({ aiModel: v })} />
-                                        <SettingRow type="slider" label="Temperature" description="Controls randomness. Lower = more precise." value={settings.aiTemperature} min={0} max={1} step={0.05} onChange={v => updateSettings({ aiTemperature: v })} />
-                                        <SettingRow type="number" label="Context Window" description="Max tokens for AI context." value={settings.aiContextWindow} min={2048} max={128000} step={1024} onChange={v => updateSettings({ aiContextWindow: v })} />
-                                        <SettingRow type="toggle" label="Contextual Awareness" description="Index local files for better AI context." value={settings.contextualAwareness} onChange={v => updateSettings({ contextualAwareness: v })} />
-                                        <SettingRow type="toggle" label="Streaming Response" description="Stream AI output in real-time." value={settings.streamingResponse} onChange={v => updateSettings({ streamingResponse: v })} />
-                                        <SettingRow type="toggle" label="Safety Mode" description="Block potentially dangerous AI commands." value={settings.aiSafetyMode} onChange={v => updateSettings({ aiSafetyMode: v })} />
+                                    <SettingSection icon={<Bot className="w-4 h-4" />} title={t( 'settings.section.ai')}>
+                                        <SettingRow
+                                            type="select"
+                                            label={t( 'settings.label.aiModel')}
+                                            description={modelFetchError ? t( 'settings.desc.aiModelError') : (isLoadingModels ? t( 'settings.desc.aiModelScanning') : t( 'settings.desc.aiModel'))}
+                                            value={settings.aiModel || (availableModels[0]?.value || 'none')}
+                                            options={availableModels.length > 0 ? availableModels : [{ label: t( 'settings.option.scanning'), value: 'none' }]}
+                                            onChange={v => updateSettings({ aiModel: v })}
+                                        />
+                                        <SettingRow type="slider" label={t( 'settings.label.aiTemperature')} description={t( 'settings.desc.aiTemperature')} value={settings.aiTemperature} min={0} max={1} step={0.05} onChange={v => updateSettings({ aiTemperature: v })} />
+                                        <SettingRow type="number" label={t( 'settings.label.aiContextWindow')} description={t( 'settings.desc.aiContextWindow')} value={settings.aiContextWindow} min={2048} max={128000} step={1024} onChange={v => updateSettings({ aiContextWindow: v })} />
+                                        <SettingRow type="toggle" label={t( 'settings.label.contextualAwareness')} description={t( 'settings.desc.contextualAwareness')} value={settings.contextualAwareness} onChange={v => updateSettings({ contextualAwareness: v })} />
+                                        <SettingRow type="toggle" label={t( 'settings.label.streamingResponse')} description={t( 'settings.desc.streamingResponse')} value={settings.streamingResponse} onChange={v => updateSettings({ streamingResponse: v })} />
+                                        <SettingRow type="toggle" label={t( 'settings.label.aiSafetyMode')} description={t( 'settings.desc.aiSafetyMode')} value={settings.aiSafetyMode} onChange={v => updateSettings({ aiSafetyMode: v })} />
                                     </SettingSection>
-                                    <SettingSection icon={<Server className="w-4 h-4" />} title="Ollama Connection">
-                                        <SettingRow type="input" label="Endpoint URL" description="URL of your Ollama server." value={settings.ollamaEndpoint} onChange={v => updateSettings({ ollamaEndpoint: v })} />
-                                        <div className="py-2 px-1">
-                                            <Button onClick={handleTestConnection} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-4">
-                                                <Zap className="w-3.5 h-3.5 mr-1.5" /> Test Connection
+                                    <SettingSection icon={<Server className="w-4 h-4" />} title={t( 'settings.section.ollama')}>
+                                        <SettingRow type="input" label={t( 'settings.label.ollamaEndpoint')} description={t( 'settings.desc.ollamaEndpoint')} value={settings.ollamaEndpoint} onChange={v => updateSettings({ ollamaEndpoint: v })} />
+                                        <div className="py-2 px-4 flex flex-wrap gap-2 items-center">
+                                            <Button onClick={handleTestConnection} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-4" disabled={isLoadingModels}>
+                                                <Zap className="w-3.5 h-3.5 mr-1.5" /> {t( 'settings.button.testConnection')}
                                             </Button>
+                                            <Button onClick={fetchModels} variant="secondary" className="text-xs h-8 px-4" disabled={isLoadingModels}>
+                                                {isLoadingModels ? t( 'settings.option.scanning') : t( 'settings.button.refreshModels')}
+                                            </Button>
+                                        </div>
+                                    </SettingSection>
+                                    <SettingSection icon={<Download className="w-4 h-4" />} title={t( 'settings.section.modelManagement')}>
+                                        <div className="py-2 px-4 flex gap-2 items-center">
+                                            <Input
+                                                value={pullModelName}
+                                                onChange={e => setPullModelName(e.target.value)}
+                                                placeholder="e.g. deepseek-coder:6.7b"
+                                                className="h-8 w-64 text-xs bg-[rgba(15,17,26,0.5)] border-ide-border focus-visible:ring-indigo-500"
+                                            />
+                                            <Button
+                                                onClick={handlePullModel}
+                                                disabled={!pullModelName.trim() || isPulling}
+                                                className="bg-green-600 hover:bg-green-700 text-white text-xs h-8 px-4"
+                                            >
+                                                {isPulling ? t( 'settings.button.pulling') : t( 'settings.button.installModel')}
+                                            </Button>
+                                        </div>
+                                        <div className="px-4 pb-2 text-[10px] text-ide-text-secondary">
+                                            {t( 'settings.desc.pullModelWarning')}
                                         </div>
                                     </SettingSection>
                                 </>
@@ -663,78 +779,82 @@ export default function SettingsView() {
                             {/* ════════════════ APPLICATION ════════════════ */}
 
                             {settingsTab === 'application.updates' && (
-                                <SettingSection icon={<Download className="w-4 h-4" />} title="Updates">
-                                    <SettingRow type="toggle" label="Auto Update" description="Automatically download and install updates." value={settings.autoUpdate} onChange={v => updateSettings({ autoUpdate: v })} />
-                                    <SettingRow type="select" label="Update Channel" description="Release channel for updates." value={settings.updateChannel} options={[
-                                        { label: 'Stable', value: 'stable' },
-                                        { label: 'Insider', value: 'insider' },
+                                <SettingSection icon={<Download className="w-4 h-4" />} title={t( 'settings.section.updates')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.autoUpdate')} description={t( 'settings.desc.autoUpdate')} value={settings.autoUpdate} onChange={v => updateSettings({ autoUpdate: v })} />
+                                    <SettingRow type="select" label={t( 'settings.label.updateChannel')} description={t( 'settings.desc.updateChannel')} value={settings.updateChannel} options={[
+                                        { label: t( 'settings.option.stable'), value: 'stable' },
+                                        { label: t( 'settings.option.insider'), value: 'insider' },
                                     ]} onChange={v => updateSettings({ updateChannel: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'application.language' && (
-                                <SettingSection icon={<Globe className="w-4 h-4" />} title="Language">
-                                    <SettingRow type="select" label="Display Language" description="IDE interface language." value={settings.language} options={[
-                                        { label: 'English', value: 'en' },
-                                        { label: 'Chinese (Simplified)', value: 'zh-CN' },
-                                        { label: 'Japanese', value: 'ja' },
-                                        { label: 'Korean', value: 'ko' },
-                                        { label: 'French', value: 'fr' },
-                                        { label: 'German', value: 'de' },
-                                        { label: 'Spanish', value: 'es' },
-                                        { label: 'Portuguese', value: 'pt' },
-                                    ]} onChange={v => updateSettings({ language: v })} />
+                                <SettingSection icon={<Globe className="w-4 h-4" />} title={t( 'settings.subpage.language')}>
+                                    <SettingRow
+                                        type="select"
+                                        label={t( 'settings.label.displayLanguage')}
+                                        description={t( 'settings.desc.displayLanguage')}
+                                        value={settings.language} options={[
+                                            { label: 'English', value: 'en' },
+                                            { label: 'Chinese (Simplified)', value: 'zh-CN' },
+                                            { label: 'Japanese', value: 'ja' },
+                                            { label: 'Korean', value: 'ko' },
+                                            { label: 'French', value: 'fr' },
+                                            { label: 'German', value: 'de' },
+                                            { label: 'Spanish', value: 'es' },
+                                            { label: 'Portuguese', value: 'pt' },
+                                        ]} onChange={v => updateSettings({ language: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'application.telemetry' && (
-                                <SettingSection icon={<BarChart3 className="w-4 h-4" />} title="Telemetry">
-                                    <SettingRow type="toggle" label="Enable Telemetry" description="Allow anonymous usage data collection." value={settings.telemetry} onChange={v => updateSettings({ telemetry: v })} />
+                                <SettingSection icon={<BarChart3 className="w-4 h-4" />} title={t( 'settings.section.telemetry')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.telemetry')} description={t( 'settings.desc.telemetry')} value={settings.telemetry} onChange={v => updateSettings({ telemetry: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'application.performance' && (
-                                <SettingSection icon={<Cpu className="w-4 h-4" />} title="Performance">
-                                    <SettingRow type="toggle" label="Performance Mode" description="Reduce visual effects for better performance." value={settings.performanceMode} onChange={v => updateSettings({ performanceMode: v })} />
-                                    <SettingRow type="number" label="Max Memory (MB)" description="Maximum memory allocation." value={settings.maxMemory} min={1024} max={32768} step={512} onChange={v => updateSettings({ maxMemory: v })} />
+                                <SettingSection icon={<Cpu className="w-4 h-4" />} title={t( 'settings.section.performance')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.performanceMode')} description={t( 'settings.desc.performanceMode')} value={settings.performanceMode} onChange={v => updateSettings({ performanceMode: v })} />
+                                    <SettingRow type="number" label={t( 'settings.label.maxMemory')} description={t( 'settings.desc.maxMemory')} value={settings.maxMemory} min={1024} max={32768} step={512} onChange={v => updateSettings({ maxMemory: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'application.storage' && (
-                                <SettingSection icon={<HardDrive className="w-4 h-4" />} title="Storage">
-                                    <SettingRow type="toggle" label="Auto Cleanup" description="Automatically clean old cache and logs." value={settings.storageAutoCleanup} onChange={v => updateSettings({ storageAutoCleanup: v })} />
+                                <SettingSection icon={<HardDrive className="w-4 h-4" />} title={t( 'settings.section.storage')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.storageAutoCleanup')} description={t( 'settings.desc.storageAutoCleanup')} value={settings.storageAutoCleanup} onChange={v => updateSettings({ storageAutoCleanup: v })} />
                                 </SettingSection>
                             )}
 
                             {/* ════════════════ SECURITY ════════════════ */}
 
                             {settingsTab === 'security.trust' && (
-                                <SettingSection icon={<Lock className="w-4 h-4" />} title="Workspace Trust">
-                                    <SettingRow type="toggle" label="Enable Workspace Trust" description="Restrict capabilities in untrusted workspaces." value={settings.workspaceTrust} onChange={v => updateSettings({ workspaceTrust: v })} />
+                                <SettingSection icon={<Lock className="w-4 h-4" />} title={t( 'settings.section.trust')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.workspaceTrust')} description={t( 'settings.desc.workspaceTrust')} value={settings.workspaceTrust} onChange={v => updateSettings({ workspaceTrust: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'security.fileaccess' && (
-                                <SettingSection icon={<FileKey className="w-4 h-4" />} title="File Access">
-                                    <SettingRow type="toggle" label="Restricted File Access" description="Limit file system access to workspace folders." value={settings.fileAccessRestricted} onChange={v => updateSettings({ fileAccessRestricted: v })} />
+                                <SettingSection icon={<FileKey className="w-4 h-4" />} title={t( 'settings.section.fileaccess')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.fileAccessRestricted')} description={t( 'settings.desc.fileAccessRestricted')} value={settings.fileAccessRestricted} onChange={v => updateSettings({ fileAccessRestricted: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'security.terminal' && (
-                                <SettingSection icon={<ShieldAlert className="w-4 h-4" />} title="Terminal Security">
-                                    <SettingRow type="toggle" label="Confirm Paste" description="Show confirmation before pasting into terminal." value={settings.terminalSecurityConfirmPaste} onChange={v => updateSettings({ terminalSecurityConfirmPaste: v })} />
+                                <SettingSection icon={<ShieldAlert className="w-4 h-4" />} title={t( 'settings.section.securityterminal')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.terminalSecurityConfirmPaste')} description={t( 'settings.desc.terminalSecurityConfirmPaste')} value={settings.terminalSecurityConfirmPaste} onChange={v => updateSettings({ terminalSecurityConfirmPaste: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'security.ai' && (
-                                <SettingSection icon={<ShieldCheck className="w-4 h-4" />} title="AI Safety">
-                                    <SettingRow type="toggle" label="Block Dangerous Commands" description="Prevent AI from suggesting destructive operations." value={settings.aiSafetyBlocking} onChange={v => updateSettings({ aiSafetyBlocking: v })} />
+                                <SettingSection icon={<ShieldCheck className="w-4 h-4" />} title={t( 'settings.section.aisafety')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.aiSafetyBlocking')} description={t( 'settings.desc.aiSafetyBlocking')} value={settings.aiSafetyBlocking} onChange={v => updateSettings({ aiSafetyBlocking: v })} />
                                 </SettingSection>
                             )}
 
                             {settingsTab === 'security.extensions' && (
-                                <SettingSection icon={<KeyRound className="w-4 h-4" />} title="Extension Permissions">
-                                    <SettingRow type="toggle" label="Permission Prompt" description="Prompt before granting extension permissions." value={settings.extensionPermissionPrompt} onChange={v => updateSettings({ extensionPermissionPrompt: v })} />
+                                <SettingSection icon={<KeyRound className="w-4 h-4" />} title={t( 'settings.section.extpermissions')}>
+                                    <SettingRow type="toggle" label={t( 'settings.label.extensionPermissionPrompt')} description={t( 'settings.desc.extensionPermissionPrompt')} value={settings.extensionPermissionPrompt} onChange={v => updateSettings({ extensionPermissionPrompt: v })} />
                                 </SettingSection>
                             )}
 

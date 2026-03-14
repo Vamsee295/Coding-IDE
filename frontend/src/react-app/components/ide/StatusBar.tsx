@@ -1,5 +1,6 @@
 import { GitBranch, AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 import { useSettings } from '@/react-app/contexts/SettingsContext';
+import { getTranslation } from '@/react-app/lib/i18n';
 
 interface StatusBarProps {
     language?: string;
@@ -24,6 +25,7 @@ export default function StatusBar({
     isConnected = true,
 }: StatusBarProps) {
     const { settings } = useSettings();
+    const t = (key: string) => getTranslation(settings.language, key);
 
     const langLabel: Record<string, string> = {
         typescript: 'TypeScript',
@@ -72,7 +74,7 @@ export default function StatusBar({
                 {errorCount === 0 && warningCount === 0 && (
                     <div className="flex items-center gap-1 text-green-400/80">
                         <CheckCircle className="w-3 h-3" />
-                        <span>No problems</span>
+                        <span>{getTranslation(settings.language, 'statusbar.noProblems')}</span>
                     </div>
                 )}
             </div>
@@ -81,11 +83,11 @@ export default function StatusBar({
             <div className="flex items-center gap-4">
                 {/* Cursor position */}
                 <div className="flex items-center gap-1">
-                    <span>Ln {line}, Col {column}</span>
+                    <span>{getTranslation(settings.language, 'statusbar.line')} {line}, {getTranslation(settings.language, 'statusbar.column')} {column}</span>
                 </div>
 
                 {/* Tab size */}
-                <span>Spaces: 2</span>
+                <span>{getTranslation(settings.language, 'statusbar.spaces')}: 2</span>
 
                 {/* Encoding */}
                 <span>UTF-8</span>
@@ -99,7 +101,7 @@ export default function StatusBar({
                 {settings.autoSave && (
                     <span className="text-green-400/70 flex items-center gap-1">
                         <CheckCircle className="w-3 h-3" />
-                        Auto Save
+                        {t('statusbar.autoSave')}
                     </span>
                 )}
 
@@ -111,7 +113,7 @@ export default function StatusBar({
                 {/* Connection status */}
                 <div className={`flex items-center gap-1 ${isConnected ? 'text-green-400/70' : 'text-red-400'}`}>
                     {isConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    <span>{isConnected ? 'Connected' : 'Offline'}</span>
+                    <span>{isConnected ? t('statusbar.connected') : t('statusbar.offline')}</span>
                 </div>
             </div>
         </div>

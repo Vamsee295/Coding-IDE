@@ -16,6 +16,7 @@ export default function SearchModal({ isOpen, onClose, rootPath, onOpenFile }: S
     const [results, setResults] = useState<Array<{ path: string, line: number, content: string }>>([]);
     const [loading, setLoading] = useState(false);
     const [searched, setSearched] = useState(false);
+    const [useRegex, setUseRegex] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -30,7 +31,7 @@ export default function SearchModal({ isOpen, onClose, rootPath, onOpenFile }: S
         setLoading(true);
         setSearched(true);
         try {
-            const res = await fsService.search(query, rootPath);
+            const res = await fsService.search(query, rootPath, useRegex);
             setResults(res || []);
         } catch (e) {
             console.error("Search failed:", e);
@@ -60,6 +61,15 @@ export default function SearchModal({ isOpen, onClose, rootPath, onOpenFile }: S
                     />
                     <Button onClick={handleSearch} disabled={loading || !query.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md">
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Find"}
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setUseRegex(!useRegex)}
+                        title={useRegex ? "Regex search enabled" : "Enable regex search"}
+                        className={`text-xs font-mono px-2 ${useRegex ? 'bg-indigo-600/30 text-indigo-400 ring-1 ring-indigo-500/50' : 'text-ide-text-secondary hover:text-white'}`}
+                    >
+                        .*
                     </Button>
                     <Button variant="ghost" size="icon" onClick={onClose} className="text-ide-text-secondary hover:text-white">
                         <X className="w-4 h-4" />

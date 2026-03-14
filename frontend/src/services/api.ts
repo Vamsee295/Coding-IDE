@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const API_BASE_URL = "http://localhost:8081/api";
+import { CONFIG } from "@/react-app/lib/config";
+
+const API_BASE_URL = CONFIG.API_BASE_URL;
 
 export const apiClient = axios.create({
     baseURL: API_BASE_URL,
@@ -10,20 +12,20 @@ export const apiClient = axios.create({
 });
 
 export const terminalClient = axios.create({
-    baseURL: "http://localhost:8082",
+    baseURL: CONFIG.TERMINAL_API_URL,
     headers: {
         "Content-Type": "application/json",
     },
 });
 
-// Optionally add a JWT interceptor if authentication exists in the app later
-// apiClient.interceptors.request.use((config) => {
-//   const token = localStorage.getItem("token");
-//   if (token) {
-//     config.headers.Authorization = `Bearer ${token}`;
-//   }
-//   return config;
-// });
+// JWT interceptor — attaches token to all API requests when available
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem("ide-auth-token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // --- Projects ---
 

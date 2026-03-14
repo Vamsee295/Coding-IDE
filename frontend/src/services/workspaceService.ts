@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const BASE = "http://localhost:8081/api/workspace";
+import { CONFIG } from "@/react-app/lib/config";
+
+const BASE = `${CONFIG.API_BASE_URL}/workspace`;
 
 export interface WorkspaceInfo {
     path: string;

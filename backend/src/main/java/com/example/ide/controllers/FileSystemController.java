@@ -1,5 +1,7 @@
 package com.example.ide.controllers;
 
+import com.example.ide.workspace.WorkspaceService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,18 +14,43 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @RestController
 @RequestMapping("/fs")
 public class FileSystemController {
+
+    private final WorkspaceService workspaceService;
+
+    public FileSystemController(WorkspaceService workspaceService) {
+        this.workspaceService = workspaceService;
+    }
+
+    /**
+     * Helper method to enforce workspace sandboxing.
+     * Prevents operations on files outside the currently opened workspace.
+     */
+    private boolean isPathAllowed(String requestedPath) {
+        if (requestedPath == null) return false;
+        try {
+            Path req = Paths.get(requestedPath).toAbsolutePath().normalize();
+            Path root = Paths.get(workspaceService.getWorkspacePath()).toAbsolutePath().normalize();
+            return req.startsWith(root);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private ResponseEntity<String> forbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Access denied: path is outside the active workspace sandbox.");
+    }
 
     /**
      * Lists the contents of a directory (shallow scan for lazy loading)
      */
     @GetMapping("/list")
     public ResponseEntity<?> listDirectory(@RequestParam String path) {
+        if (!isPathAllowed(path)) return forbidden();
+
         File directory = new File(path);
         
         if (!directory.exists() || !directory.isDirectory()) {
@@ -69,6 +96,8 @@ public class FileSystemController {
      */
     @GetMapping("/read")
     public ResponseEntity<?> readFile(@RequestParam String path) {
+        if (!isPathAllowed(path)) return forbidden();
+
         try {
             Path filePath = Paths.get(path);
             if (!Files.exists(filePath) || Files.isDirectory(filePath)) {
@@ -92,6 +121,7 @@ public class FileSystemController {
         if (pathStr == null || content == null) {
             return ResponseEntity.badRequest().body("Path and content are required");
         }
+        if (!isPathAllowed(pathStr)) return forbidden();
 
         try {
             Path filePath = Paths.get(pathStr);
@@ -103,7 +133,8 @@ public class FileSystemController {
     }
 
     /**
-     * Basic check for directory existence (used for "Opening" a project)
+     * Basic check for directory existence (used for "Opening" a project).
+     * This is intentionally NOT sandboxed so users can switch to new workspaces.
      */
     @GetMapping("/exists")
     public ResponseEntity<?> checkExists(@RequestParam String path) {
@@ -124,6 +155,7 @@ public class FileSystemController {
         if (pathStr == null) {
             return ResponseEntity.badRequest().body("Path is required");
         }
+        if (!isPathAllowed(pathStr)) return forbidden();
 
         try {
             Path dirPath = Paths.get(pathStr);
@@ -146,6 +178,7 @@ public class FileSystemController {
         if (path == null) {
             return ResponseEntity.badRequest().body("Path is required");
         }
+        if (!isPathAllowed(path)) return forbidden();
 
         try {
             Path itemPath = Paths.get(path);
@@ -181,6 +214,7 @@ public class FileSystemController {
         if (oldPathStr == null || newPathStr == null) {
             return ResponseEntity.badRequest().body("oldPath and newPath are required");
         }
+        if (!isPathAllowed(oldPathStr) || !isPathAllowed(newPathStr)) return forbidden();
 
         try {
             Path oldPath = Paths.get(oldPathStr);
@@ -201,34 +235,49 @@ public class FileSystemController {
     }
 
     /**
-     * Searches for a query string in files within a directory recursively
+     * Searches for a query string in files within a directory recursively.
+     * Supports optional regex mode via the `regex` query parameter.
      */
     @GetMapping("/search")
-    public ResponseEntity<?> searchFiles(@RequestParam String query, @RequestParam String rootPath) {
+    public ResponseEntity<?> searchFiles(
+            @RequestParam String query,
+            @RequestParam String rootPath,
+            @RequestParam(required = false, defaultValue = "false") boolean regex) {
         if (query == null || query.isEmpty()) {
             return ResponseEntity.badRequest().body("Query is required");
         }
+        if (!isPathAllowed(rootPath)) return forbidden();
+
         File root = new File(rootPath);
         if (!root.exists() || !root.isDirectory()) {
             return ResponseEntity.notFound().build();
         }
 
+        java.util.regex.Pattern pattern = null;
+        if (regex) {
+            try {
+                pattern = java.util.regex.Pattern.compile(query, java.util.regex.Pattern.CASE_INSENSITIVE);
+            } catch (java.util.regex.PatternSyntaxException e) {
+                return ResponseEntity.badRequest().body("Invalid regex pattern: " + e.getMessage());
+            }
+        }
+
         List<Map<String, Object>> results = new ArrayList<>();
-        searchRecursive(root, query, results);
+        searchRecursive(root, query, pattern, results);
         return ResponseEntity.ok(results);
     }
 
-    private void searchRecursive(File file, String query, List<Map<String, Object>> results) {
+    private void searchRecursive(File file, String query, java.util.regex.Pattern pattern, List<Map<String, Object>> results) {
         File[] children = file.listFiles();
         if (children == null) return;
 
         for (File child : children) {
             if (child.isDirectory()) {
                 String name = child.getName();
-                if (name.equals("node_modules") || name.equals(".git") || name.equals("target") || name.equals("build") || name.equals(".next") || name.equals("dist")) {
+                if (name.equals("node_modules") || name.equals(".git") || name.equals("target") || name.equals("build") || name.equals(".next") || name.equals("dist") || name.startsWith(".")) {
                     continue;
                 }
-                searchRecursive(child, query, results);
+                searchRecursive(child, query, pattern, results);
             } else {
                 try {
                     // Basic binary check: check if filename ends with common binary extensions
@@ -243,7 +292,11 @@ public class FileSystemController {
                     List<String> lines = Files.readAllLines(child.toPath());
                     for (int i = 0; i < lines.size(); i++) {
                         String line = lines.get(i);
-                        if (line.toLowerCase().contains(query.toLowerCase())) {
+                        boolean matches = pattern != null
+                            ? pattern.matcher(line).find()
+                            : line.toLowerCase().contains(query.toLowerCase());
+
+                        if (matches) {
                             Map<String, Object> match = new HashMap<>();
                             match.put("path", child.getAbsolutePath());
                             match.put("line", i + 1);

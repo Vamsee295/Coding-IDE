@@ -1,10 +1,12 @@
 import MonacoEditor, { OnMount, BeforeMount } from "@monaco-editor/react";
-import { useRef, useEffect } from "react";
-import { X, Circle } from "lucide-react";
+import { useRef, useEffect, useState } from "react";
+import { X, Circle, ChevronRight } from "lucide-react";
 import { EditorTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
+import { connectLanguageServer, disconnectLanguageServer } from "@/services/lspClient";
+import { getFileIconUrl } from "@/react-app/lib/fileIcons";
 
 export type SelectionChangePayload = {
   path?: string;
@@ -20,6 +22,7 @@ interface EditorProps {
   onTabSelect: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onContentChange: (tabId: string, content: string) => void;
+  onTabRename: (tabId: string, newName: string) => void;
   onSelectionChange?: (payload: SelectionChangePayload) => void;
 }
 
@@ -56,8 +59,6 @@ const getLanguage = (filename: string): string => {
       return "rust";
     case "rb":
       return "ruby";
-    case "php":
-      return "php";
     case "sh":
       return "shell";
     default:
@@ -65,17 +66,19 @@ const getLanguage = (filename: string): string => {
   }
 };
 
-export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange, onSelectionChange }: EditorProps) {
+export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange, onTabRename, onSelectionChange }: EditorProps) {
   const activeTab = tabs.find((t) => t.isActive);
   const { settings } = useSettings();
   const editorRef = useRef<any>(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
 
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [tempTabName, setTempTabName] = useState("");
+
   const selectionDisposeRef = useRef<(() => void) | null>(null);
 
   const handleBeforeMount: BeforeMount = (monaco) => {
-    // Configure TypeScript compiler options to work without node_modules
     const tsDefaults = monaco.languages.typescript.typescriptDefaults;
     const jsDefaults = monaco.languages.typescript.javascriptDefaults;
 
@@ -97,28 +100,22 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
 
     tsDefaults.setCompilerOptions(compilerOptions);
     jsDefaults.setCompilerOptions(compilerOptions);
-
-    // Disable semantic validation (type errors) — Monaco doesn't have access
-    // to user's node_modules, so these would all be false positives
-    tsDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: false,
-      noSuggestionDiagnostics: true,
-    });
-    jsDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: false,
-      noSuggestionDiagnostics: true,
-    });
+    // Semantic validation now backed by our actual typescript-language-server
   };
 
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
     selectionDisposeRef.current?.();
-    if (onSelectionChangeRef.current && activeTab) {
+
+    if (activeTab) {
+      const language = getLanguage(activeTab.name);
+      
+      if (language === 'typescript' || language === 'javascript') {
+          connectLanguageServer(editor as any, language);
+      }
+
       const path = activeTab.path ?? "";
       const name = activeTab.name;
-      const language = activeTab.language || getLanguage(activeTab.name);
       const disposable = editor.onDidChangeCursorSelection(() => {
         const sel = editor.getSelection();
         const model = editor.getModel();
@@ -136,9 +133,11 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
     }
   };
 
-  useEffect(() => () => { selectionDisposeRef.current?.(); }, []);
+  useEffect(() => () => { 
+      selectionDisposeRef.current?.();
+      disconnectLanguageServer();
+  }, []);
 
-  // Bind IDE Commands to Monaco editor actions
   useIdeCommandListener("edit.undo", () => editorRef.current?.trigger('menu', 'undo', null));
   useIdeCommandListener("edit.redo", () => editorRef.current?.trigger('menu', 'redo', null));
   useIdeCommandListener("edit.find", () => editorRef.current?.trigger('menu', 'actions.find', null));
@@ -239,9 +238,52 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
                 ? "bg-ide-editor text-ide-text-primary"
                 : "text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
             )}
-            onClick={() => onTabSelect(tab.id)}
+            onClick={() => {
+              if (tab.isActive) {
+                // Keep simple
+              }
+              onTabSelect(tab.id);
+            }}
           >
-            <span className="text-sm truncate max-w-32">{tab.name}</span>
+            {renamingTabId === tab.id ? (
+              <input
+                autoFocus
+                className="bg-ide-editor text-sm text-ide-text-primary px-1 border border-indigo-500 rounded focus:outline-none w-24"
+                value={tempTabName}
+                onChange={(e) => setTempTabName(e.target.value)}
+                onBlur={() => {
+                  if (tempTabName.trim() && tempTabName !== tab.name) {
+                    onTabRename(tab.id, tempTabName);
+                  }
+                  setRenamingTabId(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (tempTabName.trim() && tempTabName !== tab.name) {
+                      onTabRename(tab.id, tempTabName);
+                    }
+                    setRenamingTabId(null);
+                  } else if (e.key === 'Escape') {
+                    setRenamingTabId(null);
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span
+                className="text-sm flex items-center gap-1.5 truncate max-w-32 select-none"
+                onClick={(e) => {
+                  if (tab.isActive) {
+                    e.stopPropagation();
+                    setRenamingTabId(tab.id);
+                    setTempTabName(tab.name);
+                  }
+                }}
+              >
+                <img src={getFileIconUrl(tab.name)} alt={tab.name} className="w-3.5 h-3.5 shrink-0" />
+                {tab.name}
+              </span>
+            )}
             {tab.isDirty && <Circle className="w-2 h-2 fill-indigo-400 text-indigo-400" />}
             <button
               onClick={(e) => {
@@ -255,6 +297,24 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
           </div>
         ))}
       </div>
+
+      {/* Breadcrumbs */}
+      {settings.breadcrumbs && activeTab && activeTab.path && (
+        <div className="h-7 bg-ide-editor border-b border-ide-border flex items-center px-4 gap-2 text-[11px] text-ide-text-secondary select-none">
+          {activeTab.path.split(/[/\\]/).filter(Boolean).map((part, idx, arr) => (
+            <div key={idx} className="flex items-center gap-2">
+              <span className={cn(
+                "flex items-center gap-1.5",
+                idx === arr.length - 1 ? "text-ide-text-primary" : "hover:text-ide-text-primary cursor-pointer transition-colors"
+              )}>
+                {idx === arr.length - 1 && <img src={getFileIconUrl(part)} alt={part} className="w-3.5 h-3.5 shrink-0" />}
+                {part}
+              </span>
+              {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-ide-text-secondary/50" />}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Monaco Editor */}
       {activeTab && (

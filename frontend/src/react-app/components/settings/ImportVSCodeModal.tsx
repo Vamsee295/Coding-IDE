@@ -8,7 +8,9 @@ import { Button } from '@/react-app/components/ui/button';
 import { Input } from '@/react-app/components/ui/input';
 import { cn } from '@/react-app/lib/utils';
 
-const API_URL = 'http://localhost:8082';
+import { CONFIG } from '@/react-app/lib/config';
+
+const API_URL = CONFIG.TERMINAL_API_URL;
 
 interface ImportVSCodeModalProps {
     isOpen: boolean;

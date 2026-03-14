@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { io, Socket } from "socket.io-client";
 import Navbar from "@/react-app/components/ide/Navbar";
 import Sidebar from "@/react-app/components/ide/Sidebar";
 import Editor from "@/react-app/components/ide/Editor";
@@ -24,7 +25,9 @@ import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
 import { commandService } from "@/services/commandService";
 import { openWorkspace as openBackendWorkspace } from "@/services/workspaceService";
+import { cn } from "@/react-app/lib/utils";
 import { aiOrchestrator } from "@/services/aiOrchestrator";
+import { CONFIG } from "@/react-app/lib/config";
 
 const getLanguage = (filename: string): string => {
   const ext = filename.split(".").pop()?.toLowerCase();
@@ -90,11 +93,58 @@ export default function HomePage() {
 
   // Check backend connectivity
   useEffect(() => {
-    const check = () => fetch("http://localhost:8082/health").then(() => setIsBackendConnected(true)).catch(() => setIsBackendConnected(false));
+    const check = () => fetch(`${CONFIG.TERMINAL_API_URL}/health`).then(() => setIsBackendConnected(true)).catch(() => setIsBackendConnected(false));
     check();
     const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // ── File Watcher Socket ────────────────────────────────────────────────────
+  const watcherSocketRef = useRef<Socket | null>(null);
+
+  useEffect(() => {
+    const socket = io(CONFIG.TERMINAL_WS_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+    });
+    watcherSocketRef.current = socket;
+
+    socket.on('fs-change', ({ events }: { events: Array<{ type: string; path: string; relativePath: string }> }) => {
+      console.log('[FileWatcher] Received fs-change events:', events.length);
+      // Find affected parent directories and refresh them
+      const affectedDirs = new Set<string>();
+      events.forEach(evt => {
+        const parentDir = evt.path.substring(0, evt.path.lastIndexOf('\\')) || evt.path.substring(0, evt.path.lastIndexOf('/'));
+        if (parentDir) affectedDirs.add(parentDir);
+      });
+
+      // Trigger a re-fetch of the file explorer tree for affected directories
+      // by resetting children of matching folders to force lazy reload
+      setFiles(prev => {
+        if (!prev) return [];
+        return refreshAffectedNodes(prev, affectedDirs);
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+      watcherSocketRef.current = null;
+    };
+  }, []);
+
+  /** Recursively find folder nodes whose path is in `dirs` and reset their children to trigger lazy reload */
+  function refreshAffectedNodes(items: FileItem[], dirs: Set<string>): FileItem[] {
+    return items.map(item => {
+      if (item.type === 'folder' && item.path && dirs.has(item.path)) {
+        return { ...item, children: undefined }; // Reset to force lazy reload
+      }
+      if (item.children && item.children.length > 0) {
+        return { ...item, children: refreshAffectedNodes(item.children, dirs) };
+      }
+      return item;
+    });
+  }
 
 
   useEffect(() => {
@@ -126,14 +176,7 @@ export default function HomePage() {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content: "Hello! I'm connected to your local Ollama instance running Qwen 2.5 Coder. How can I help you with your code today?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [dialogState, setDialogState] = useState<{
     open: boolean;
@@ -150,7 +193,7 @@ export default function HomePage() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | undefined>(undefined);
   // Tracks the very first project path — passed as initialCwd to TerminalPanel once
   const [initialTerminalCwd, setInitialTerminalCwd] = useState<string | undefined>(undefined);
-  console.log("[Home] Rendered with initialTerminalCwd:", initialTerminalCwd);
+  // console.log("[Home] Rendered with initialTerminalCwd:", initialTerminalCwd);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
 
@@ -164,12 +207,16 @@ export default function HomePage() {
   }, [sidebarTab]);
 
   useIdeCommandListener("view.explorer", () => toggleSidebarTab("explorer"));
-  useIdeCommandListener("view.search", () => toggleSidebarTab("search"));
   useIdeCommandListener("view.extensions", () => toggleSidebarTab("extensions"));
   useIdeCommandListener("view.scm", () => toggleSidebarTab("git"));
   useIdeCommandListener("view.debug", () => toggleSidebarTab("debug"));
 
   useIdeCommandListener("view.wordWrap", () => updateSettings({ wordWrap: !settings.wordWrap }));
+  useIdeCommandListener("view.toggleActivityBar", () => updateSettings({ layoutActivityBarVisible: !settings.layoutActivityBarVisible }));
+  useIdeCommandListener("view.toggleStatusBar", () => updateSettings({ layoutStatusBarVisible: !settings.layoutStatusBarVisible }));
+  useIdeCommandListener("view.toggleZenMode", () => updateSettings({ zenMode: !settings.zenMode }));
+  useIdeCommandListener("view.moveSidebarLeft", () => updateSettings({ layoutSidebarPosition: "left" }));
+  useIdeCommandListener("view.moveSidebarRight", () => updateSettings({ layoutSidebarPosition: "right" }));
 
 
   // Ref to the terminal panel — used to imperatively cd when a project is opened
@@ -180,6 +227,7 @@ export default function HomePage() {
     const restoreWorkspace = async () => {
       const lastWorkspace = localStorage.getItem("ide-last-active-workspace");
 
+      let pathLoaded = false;
       // If we have a saved state, attempt to restore it
       if (lastWorkspace) {
         try {
@@ -187,26 +235,25 @@ export default function HomePage() {
           const existsInfo = await fsService.checkExists(lastWorkspace);
           if (existsInfo.exists && existsInfo.isDirectory) {
             await openWorkspacePath(lastWorkspace);
-            return;
+            pathLoaded = true;
           }
         } catch (e) {
           console.error("Failed to restore last workspace, falling back to home", e);
         }
       }
 
-      // Fallback: Fetch Home Directory from Terminal Server
+      // Check if we need to set the terminal to a default safe path if no workspace was restored
+      // But do NOT call openWorkspacePath on the user home directory as it will scan all user files.
       try {
-        const res = await fetch("http://localhost:8082/user-home");
+        const res = await fetch(`${CONFIG.TERMINAL_API_URL}/user-home`);
         const data = await res.json();
         if (data.path) {
-          await openWorkspacePath(data.path);
-        } else {
-          // Absolute last resort
-          await openWorkspacePath("C:\\");
+          if (!pathLoaded && !activeProjectPath) {
+            setInitialTerminalCwd(data.path);
+          }
         }
       } catch (e) {
-        console.error("Failed to fetch user home, falling back to C:\\", e);
-        await openWorkspacePath("C:\\");
+        console.error("Failed to fetch user home for terminal fallback.", e);
       }
     };
 
@@ -245,6 +292,16 @@ export default function HomePage() {
 
     const openFile = async (item: FileItem) => {
       let content = item.content || "";
+
+      // Determine the directory of the file (for terminal fallback)
+      if (item.path && !activeProjectPath) {
+        const fileDir = item.path.substring(0, item.path.lastIndexOf('\\')) || item.path.substring(0, item.path.lastIndexOf('/'));
+        if (fileDir) {
+          setInitialTerminalCwd(fileDir);
+          // Also update the active terminal instance if it exists
+          terminalRef.current?.resetForNewWorkspace(fileDir);
+        }
+      }
 
       // If server-side file and no content yet, fetch it
       if (item.path && !item.content) {
@@ -302,6 +359,12 @@ export default function HomePage() {
       }
       return filtered;
     });
+  }, []);
+
+  const handleTabRename = useCallback((tabId: string, newName: string) => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId ? { ...t, name: newName } : t))
+    );
   }, []);
 
   const handleContentChange = useCallback((tabId: string, content: string) => {
@@ -372,12 +435,11 @@ export default function HomePage() {
         requestPayload.images = attachedImages.map(img => img.replace(/^data:image\/[a-z]+;base64,/, ''));
       }
 
-      const response = await fetch(`http://localhost:8081/api/ai/generate`, {
+      // Use the streaming endpoint for real-time token display
+      const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestPayload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
       });
 
       if (!response.ok) {
@@ -385,21 +447,64 @@ export default function HomePage() {
         throw new Error(`Server Error ${response.status}: ${(errorData as any).error || response.statusText}`);
       }
 
-      const data = await response.json();
-      const rawResponse = data.response || "";
-
-      // Parse Actions
-      const actions = aiOrchestrator.parseActions(rawResponse);
-      const cleanContent = aiOrchestrator.stripActions(rawResponse);
-
-      const aiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+      // Create a placeholder assistant message and stream tokens into it
+      const aiMsgId = (Date.now() + 1).toString();
+      const placeholderMsg: ChatMessage = {
+        id: aiMsgId,
         role: "assistant",
-        content: cleanContent || "I've processed your request.",
+        content: "",
         timestamp: new Date(),
-        actions: actions.length > 0 ? actions : undefined,
       };
-      setMessages((prev) => [...prev, aiResponse]);
+      setMessages(prev => [...prev, placeholderMsg]);
+
+      // Read the NDJSON stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+
+      if (reader) {
+        let done = false;
+        let buffer = "";
+
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          done = readerDone;
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+            // Parse NDJSON lines
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const chunk = JSON.parse(line);
+                if (chunk.response) {
+                  fullResponse += chunk.response;
+                  // Update the message content incrementally
+                  setMessages(prev =>
+                    prev.map(m => m.id === aiMsgId ? { ...m, content: fullResponse } : m)
+                  );
+                }
+              } catch {
+                // Skip unparseable chunks
+              }
+            }
+          }
+        }
+      }
+
+      // Parse AI actions from the completed response
+      const actions = aiOrchestrator.parseActions(fullResponse);
+      const cleanContent = aiOrchestrator.stripActions(fullResponse);
+
+      setMessages(prev =>
+        prev.map(m => m.id === aiMsgId ? {
+          ...m,
+          content: cleanContent || "I've processed your request.",
+          actions: actions.length > 0 ? actions : undefined,
+        } : m)
+      );
     } catch (error: any) {
       console.error("AI Error:", error);
       const aiResponseError: ChatMessage = {
@@ -1016,7 +1121,7 @@ export default function HomePage() {
   });
   useIdeCommandListener("file.openFolder", async () => {
     try {
-      const resp = await fetch("http://localhost:8082/pick-folder");
+      const resp = await fetch(`${CONFIG.TERMINAL_API_URL}/pick-folder`);
       const data = await resp.json();
       if (data.path) {
         await openWorkspacePath(data.path);
@@ -1048,6 +1153,8 @@ export default function HomePage() {
         console.log("[Home] SUCCESS opening workspace. Path:", path, "initialTerminalCwd set to:", path);
         // Register on backend so terminal + project detector know the workspace
         openBackendWorkspace(path).catch(() => { });
+        // Start file watcher for this workspace
+        watcherSocketRef.current?.emit('watch-workspace', { rootPath: path });
         // Open a NEW terminal tab for this workspace and clear old ones
         terminalRef.current?.resetForNewWorkspace(path);
         setTerminalVisible(true);
@@ -1063,7 +1170,7 @@ export default function HomePage() {
 
   useIdeCommandListener("file.openLocalPath", async () => {
     try {
-      const resp = await fetch("http://localhost:8082/pick-folder");
+      const resp = await fetch(`${CONFIG.TERMINAL_API_URL}/pick-folder`);
       const data = await resp.json();
       if (data.path) {
         await openWorkspacePath(data.path);
@@ -1267,6 +1374,7 @@ export default function HomePage() {
     setInitialTerminalCwd(undefined);
     // Optionally close the terminal completely or let it sit idle.
     setTerminalVisible(false);
+    localStorage.removeItem("ide-last-active-workspace");
   });
 
   useIdeCommandListener("file.closeWindow", () => {
@@ -1317,8 +1425,7 @@ export default function HomePage() {
       setTabs([]);
       setActiveFileId(null);
       setActiveProjectPath(undefined);
-      setInitialTerminalCwd("C:\\");
-      terminalRef.current?.resetForNewWorkspace("C:\\");
+      setInitialTerminalCwd(undefined);
       setTerminalVisible(true);
       localStorage.removeItem("ide-last-active-workspace");
     }
@@ -1343,8 +1450,12 @@ export default function HomePage() {
         onModelChange={setSelectedModel}
       />
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex-1 flex min-h-0">
-          <Sidebar
+        <div className={cn(
+          "flex-1 flex min-h-0",
+          settings.layoutSidebarPosition === 'right' && "flex-row-reverse"
+        )}>
+          {!settings.zenMode && (
+            <Sidebar
             files={files}
             activeFileId={activeFileId}
             onFileSelect={handleFileSelect}
@@ -1362,7 +1473,8 @@ export default function HomePage() {
             onTabChange={setSidebarTab}
             rootPath={activeProjectPath}
           />
-          {!sidebarCollapsed && (
+          )}
+          {!settings.zenMode && !sidebarCollapsed && (
             <div
               className="w-1 bg-transparent hover:bg-indigo-500/50 cursor-col-resize z-10 transition-colors active:bg-indigo-500 shrink-0 select-none"
               onMouseDown={(e) => {
@@ -1376,6 +1488,7 @@ export default function HomePage() {
             onTabSelect={handleTabSelect}
             onTabClose={handleTabClose}
             onContentChange={handleContentChange}
+            onTabRename={handleTabRename}
             onSelectionChange={handleSelectionChange}
           />
           {/* Debug Toolbar overlay */}
@@ -1469,13 +1582,15 @@ export default function HomePage() {
         />
       </div>
       {/* Status Bar */}
-      <StatusBar
-        language={tabs.find(t => t.isActive)?.language || getLanguage(tabs.find(t => t.isActive)?.name || '')}
-        line={statusBarLine}
-        column={statusBarCol}
-        isDirty={tabs.find(t => t.isActive)?.isDirty || false}
-        isConnected={isBackendConnected}
-      />
+      {settings.layoutStatusBarVisible && !settings.zenMode && (
+        <StatusBar
+          language={tabs.find(t => t.isActive)?.language || getLanguage(tabs.find(t => t.isActive)?.name || '')}
+          line={statusBarLine}
+          column={statusBarCol}
+          isDirty={tabs.find(t => t.isActive)?.isDirty || false}
+          isConnected={isBackendConnected}
+        />
+      )}
       <FileOperationDialog
         open={dialogState.open}
         onOpenChange={(open) => setDialogState((prev) => ({ ...prev, open }))}

@@ -1,3 +1,0 @@
-﻿error TS2688: Cannot find type definition file for './worker-configuration.d.ts'.
-  The file is in the program because:
-    Entry point of type library './worker-configuration.d.ts' specified in compilerOptions

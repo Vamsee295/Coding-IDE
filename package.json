@@ -1,0 +1,18 @@
+{
+  "name": "stackflow-ide-monorepo",
+  "version": "1.0.0",
+  "description": "Unified entry point for StackFlow IDE services",
+  "scripts": {
+    "install:all": "npm install --prefix frontend && npm install --prefix terminal-server",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:terminal": "npm run start --prefix terminal-server",
+    "dev:backend": "cd backend && ./mvnw spring-boot:run",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "cd backend && ./mvnw package -DskipTests",
+    "prod:start:terminal": "npm run start --prefix terminal-server",
+    "prod:start:backend": "java -jar backend/target/*.jar"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

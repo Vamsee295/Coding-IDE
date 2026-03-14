@@ -4,7 +4,9 @@ import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
 import { io, Socket } from "socket.io-client";
 
-const WS_URL = "http://localhost:8082";
+import { CONFIG } from "@/react-app/lib/config";
+
+const WS_URL = CONFIG.TERMINAL_WS_URL;
 
 interface LogEntry {
     source: string;

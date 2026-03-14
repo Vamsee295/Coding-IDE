@@ -8,7 +8,9 @@
 
 import { io, Socket } from 'socket.io-client';
 
-const BACKEND_WS_URL = 'http://localhost:8082';
+import { CONFIG } from '@/react-app/lib/config';
+
+const BACKEND_WS_URL = CONFIG.TERMINAL_WS_URL;
 
 export type DebugEvent =
     | { type: 'stopped'; reason: string; threadId?: number; line?: number; filePath?: string }

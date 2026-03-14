@@ -2,6 +2,7 @@
 node_modules/
 .pnp
 .pnp.js
+.wrangler/
 
 # Testing
 coverage/
@@ -10,7 +11,24 @@ coverage/
 dist/
 build/
 target/
-.wrangler/
+*.tsbuildinfo
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Project-specific artifacts/logs
+compile_output*.txt
+lint_output*.txt
+*log.txt
+err.txt
+out.txt
+ts_errs.txt
+tsc_errors.txt
+tsc_output*.txt
+errors.txt
+full_error.txt
+readable_error.txt
+clean_i18n.py
 
 # Misc
 .DS_Store
@@ -22,21 +40,26 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Local env files
-.env*.local
+# Environment files
+.env
+.env.*
+!.env.example
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*.iws
+*.iml
+*.ipr
 .settings/
 .project
 .classpath
-
-# Logs
-logs/
-*.log
+.factorypath
+.apt_generated
+.springBeans
+.sts4-cache
 
 # Temp
 tmp/

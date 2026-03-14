@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8081/api/fs';
+import { CONFIG } from '@/react-app/lib/config';
+
+const API_BASE_URL = `${CONFIG.API_BASE_URL}/fs`;
 
 export interface FileSystemItem {
     name: string;
@@ -68,10 +70,10 @@ export const fsService = {
     },
 
     /**
-     * Search files content
+     * Search files content (supports optional regex mode)
      */
-    async search(query: string, rootPath: string): Promise<Array<{ path: string, line: number, content: string }>> {
-        const response = await axios.get(`${API_BASE_URL}/search`, { params: { query, rootPath } });
+    async search(query: string, rootPath: string, regex: boolean = false): Promise<Array<{ path: string, line: number, content: string }>> {
+        const response = await axios.get(`${API_BASE_URL}/search`, { params: { query, rootPath, regex } });
         return response.data;
     }
 };

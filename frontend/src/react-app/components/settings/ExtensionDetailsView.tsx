@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/react-app/components/ui/button';
 import { cn } from '@/react-app/lib/utils';
+import { CONFIG } from '@/react-app/lib/config';
 
 interface ExtensionDetailsViewProps {
     extensionId: string;
@@ -95,7 +96,7 @@ export default function ExtensionDetailsView({ extensionId, onBack }: ExtensionD
                     <div className="flex gap-8 items-start mb-12">
                         <div className="w-32 h-32 rounded-2xl bg-ide-sidebar border border-ide-border flex items-center justify-center shrink-0 shadow-lg overflow-hidden group">
                             {pkg.icon ? (
-                                <img src={`http://localhost:8082/vscode-extensions/icon/${extensionId}`}
+                                <img src={`${CONFIG.TERMINAL_API_URL}/vscode-extensions/icon/${extensionId}`}
                                     alt=""
                                     className="w-20 h-20 object-contain group-hover:scale-110 transition-transform duration-500"
                                     onError={(e) => {

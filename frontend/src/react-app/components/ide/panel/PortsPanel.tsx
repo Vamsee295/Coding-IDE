@@ -3,7 +3,9 @@ import { Wifi, RefreshCw, ExternalLink, Copy, Check, Server } from "lucide-react
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
 
-const API_URL = "http://localhost:8082";
+import { CONFIG } from "@/react-app/lib/config";
+
+const API_URL = CONFIG.TERMINAL_API_URL;
 
 interface PortEntry {
     port: number;

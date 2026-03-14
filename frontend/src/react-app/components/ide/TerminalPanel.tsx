@@ -28,7 +28,9 @@ import OutputPanel from "./panel/OutputPanel";
 import DebugConsolePanel from "./panel/DebugConsolePanel";
 import PortsPanel from "./panel/PortsPanel";
 
-const BACKEND_WS_URL = "http://localhost:8082";
+import { CONFIG } from "@/react-app/lib/config";
+
+const BACKEND_WS_URL = CONFIG.TERMINAL_WS_URL;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -196,6 +198,14 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
         });
         const folderName = profile || cwd.split(/[/\\]/).filter(Boolean).pop() || "Terminal";
         console.log(`[TerminalPanel] Emitting create-terminal for tab=${tabId}, cwd=${cwd}, profile=${profile}`);
+
+        // Workspace Guard
+        if (cwd === "C:\\" || cwd === "C:/") {
+          console.warn("[Workspace Guard] Opening entire drive may slow the IDE");
+          // Optionally, we could fire an alert or toast here for the user.
+          // We could also rewrite cwd to a safer default (like USERPROFILE) but since this is an explicit action sometimes, we just warn for now.
+        }
+
         socketRef.current!.emit("create-terminal", { cwd, name: folderName, profile });
       };
       emitCreate();

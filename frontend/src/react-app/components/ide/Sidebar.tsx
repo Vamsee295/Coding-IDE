@@ -2,27 +2,22 @@ import { useState } from "react";
 import {
   ChevronRight,
   ChevronDown,
-  File,
   Folder,
-  FolderOpen,
   Plus,
-  Search,
   GitBranch,
   Settings,
   Puzzle,
-  FileCode,
-  FileJson,
-  FileText,
   Bug,
 } from "lucide-react";
 import { FileItem, SidebarTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
+import { getTranslation } from "@/react-app/lib/i18n";
 import { Button } from "@/react-app/components/ui/button";
 import FileContextMenu from "./FileContextMenu";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
-import SearchView from "./sidebar/SearchView";
 import SourceControlView from "./sidebar/SourceControlView";
 import DebugView from "./sidebar/DebugView";
+import { getFileIconUrl, getFolderIconUrl } from "@/react-app/lib/fileIcons";
 
 interface SidebarProps {
   files: FileItem[];
@@ -43,27 +38,7 @@ interface SidebarProps {
   rootPath?: string;
 }
 
-const getFileIcon = (filename: string) => {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "ts":
-    case "tsx":
-      return <FileCode className="w-4 h-4 text-blue-400" />;
-    case "js":
-    case "jsx":
-      return <FileCode className="w-4 h-4 text-yellow-400" />;
-    case "json":
-      return <FileJson className="w-4 h-4 text-yellow-300" />;
-    case "html":
-      return <FileCode className="w-4 h-4 text-orange-400" />;
-    case "css":
-      return <FileCode className="w-4 h-4 text-blue-300" />;
-    case "md":
-      return <FileText className="w-4 h-4 text-gray-400" />;
-    default:
-      return <File className="w-4 h-4 text-ide-text-secondary" />;
-  }
-};
+// File icons handle centrally using full map
 
 interface FileTreeItemProps {
   item: FileItem;
@@ -126,11 +101,11 @@ function FileTreeItem({
             ) : (
               <ChevronRight className="w-3.5 h-3.5 shrink-0" />
             )}
-            {isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
-            ) : (
-              <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
-            )}
+            <img 
+              src={getFolderIconUrl(item.name, isExpanded)} 
+              alt={item.name} 
+              className="w-4 h-4 shrink-0" 
+            />
             <span className="truncate">{item.name}</span>
           </button>
         </FileContextMenu>
@@ -158,7 +133,7 @@ function FileTreeItem({
                 className="py-1 px-2 text-[10px] text-yellow-500/70 italic border-l border-ide-border ml-2"
                 style={{ marginLeft: `${(depth + 1) * 12 + 8}px` }}
               >
-                Folder truncated... (Limit: 500)
+                Folder truncated...
               </div>
             )}
           </div>
@@ -187,7 +162,7 @@ function FileTreeItem({
         )}
         style={{ paddingLeft: `${depth * 12 + 24}px` }}
       >
-        {getFileIcon(item.name)}
+        <img src={getFileIconUrl(item.name)} alt={item.name} className="w-4 h-4 shrink-0" />
         <span className="truncate">{item.name}</span>
       </button>
     </FileContextMenu>
@@ -226,20 +201,18 @@ export default function Sidebar({
     });
   };
 
-  const { setIsSettingsOpen, setSettingsTab } = useSettings();
+  const { settings, setIsSettingsOpen, setSettingsTab } = useSettings();
+  const t = (key: string) => getTranslation(settings.language, key);
 
   const activityBarItems = [
-    { id: "explorer" as SidebarTab, icon: <Folder className="w-5 h-5" />, label: "Explorer" },
-    { id: "search" as SidebarTab, icon: <Search className="w-5 h-5" />, label: "Search" },
-    { id: "git" as SidebarTab, icon: <GitBranch className="w-5 h-5" />, label: "Source Control" },
-    { id: "debug" as SidebarTab, icon: <Bug className="w-5 h-5" />, label: "Run & Debug" },
-    { id: "extensions" as SidebarTab, icon: <Puzzle className="w-5 h-5" />, label: "Extensions" },
+    { id: "explorer" as SidebarTab, icon: <Folder className="w-5 h-5" />, label: "sidebar.explorer" },
+    { id: "git" as SidebarTab, icon: <GitBranch className="w-5 h-5" />, label: "sidebar.scm" },
+    { id: "debug" as SidebarTab, icon: <Bug className="w-5 h-5" />, label: "sidebar.debug" },
+    { id: "extensions" as SidebarTab, icon: <Puzzle className="w-5 h-5" />, label: "sidebar.extensions" },
   ];
 
   const renderContent = () => {
     switch (activeTab) {
-      case "search":
-        return <SearchView rootPath={rootPath} onFileSelect={onFileSelect} />;
       case "git":
         return <SourceControlView rootPath={rootPath} />;
       case "debug":
@@ -251,7 +224,7 @@ export default function Sidebar({
             {/* Header */}
             <div className="h-10 px-4 flex items-center justify-between border-b border-ide-border">
               <span className="text-[10px] font-bold uppercase tracking-wider text-ide-text-secondary select-none">
-                Explorer
+                {t("sidebar.explorer")}
               </span>
               <div className="flex items-center gap-1">
                 <Button
@@ -259,7 +232,7 @@ export default function Sidebar({
                   size="icon"
                   onClick={() => onNewFile("root")}
                   className="w-6 h-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
-                  title="New File"
+                  title={t("menu.file.newFile")}
                 >
                   <Plus className="w-4 h-4" />
                 </Button>
@@ -270,7 +243,7 @@ export default function Sidebar({
             <div className="flex-1 overflow-y-auto py-1 custom-scrollbar">
               {files.length === 0 ? (
                 <div className="p-8 text-center">
-                  <p className="text-xs text-ide-text-secondary italic">No folder opened</p>
+                  <p className="text-xs text-ide-text-secondary italic">{t("sidebar.noFolderOpened")}</p>
                 </div>
               ) : (
                 files.map((file) => (
@@ -300,54 +273,56 @@ export default function Sidebar({
   return (
     <div className="flex h-full shrink-0 border-r border-ide-border relative overflow-hidden">
       {/* Activity Bar */}
-      <aside className="w-12 bg-[#0d0f17] border-r border-ide-border flex flex-col items-center py-4 gap-4 shrink-0 z-20">
-        {activityBarItems.map((item) => (
+      {settings.layoutActivityBarVisible && (
+        <aside className="w-12 bg-[#0d0f17] border-r border-ide-border flex flex-col items-center py-4 gap-4 shrink-0 z-20">
+          {activityBarItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                if (item.id === "extensions") {
+                  setSettingsTab("extensions");
+                  setIsSettingsOpen(true);
+                  return;
+                }
+                if (activeTab === item.id && !isCollapsed) {
+                  onToggleCollapse();
+                } else {
+                  onTabChange(item.id);
+                  if (isCollapsed) onToggleCollapse();
+                }
+              }}
+              className={cn(
+                "p-2.5 transition-all relative group",
+                activeTab === item.id && !isCollapsed
+                  ? "text-indigo-400"
+                  : "text-ide-text-secondary hover:text-ide-text-primary"
+              )}
+              title={getTranslation(settings.language, item.label)}
+            >
+              {item.icon}
+              {activeTab === item.id && !isCollapsed && (
+                <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-500 rounded-r shadow-[0_0_8px_rgba(99,102,241,0.6)]" />
+              )}
+              <div className="absolute left-14 px-2 py-1 bg-ide-sidebar border border-ide-border text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+                {t(item.label)}
+              </div>
+            </button>
+          ))}
+          <div className="flex-1" />
           <button
-            key={item.id}
-            onClick={() => {
-              if (item.id === "extensions") {
-                setSettingsTab("extensions");
-                setIsSettingsOpen(true);
-                return;
-              }
-              if (activeTab === item.id && !isCollapsed) {
-                onToggleCollapse();
-              } else {
-                onTabChange(item.id);
-                if (isCollapsed) onToggleCollapse();
-              }
-            }}
-            className={cn(
-              "p-2.5 transition-all relative group",
-              activeTab === item.id && !isCollapsed
-                ? "text-indigo-400"
-                : "text-ide-text-secondary hover:text-ide-text-primary"
-            )}
-            title={item.label}
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2.5 text-ide-text-secondary hover:text-ide-text-primary transition-all mb-2"
+            title={t("settings.title")}
           >
-            {item.icon}
-            {activeTab === item.id && !isCollapsed && (
-              <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-500 rounded-r shadow-[0_0_8px_rgba(99,102,241,0.6)]" />
-            )}
-            <div className="absolute left-14 px-2 py-1 bg-ide-sidebar border border-ide-border text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
-              {item.label}
-            </div>
+            <Settings className="w-5 h-5" />
           </button>
-        ))}
-        <div className="flex-1" />
-        <button
-          onClick={() => setIsSettingsOpen(true)}
-          className="p-2.5 text-ide-text-secondary hover:text-ide-text-primary transition-all mb-2"
-          title="Settings"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-      </aside>
+        </aside>
+      )}
 
       {/* Main Container for Explorer/Search Pane */}
       {!isCollapsed && (
         <aside
-          style={{ width: width - 48 }}
+          style={{ width: settings.layoutActivityBarVisible ? width - 48 : width }}
           className={cn(
             "bg-ide-sidebar flex flex-col grow select-none",
             !isResizing && "transition-all duration-300"
