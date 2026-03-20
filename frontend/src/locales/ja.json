@@ -213,7 +213,7 @@
   "menu.help.toggleDevTools": "開発者ツールの切り替え",
   "menu.help.processExplorer": "プロセスエクスプローラーを開く",
   "menu.help.checkUpdates": "更新の確認...",
-  "welcome.title": "StackFlow IDE",
+  "welcome.title": "OLLAMA AI",
   "welcome.subtitle": "AI搭載のローカルエディタ — 開発者のために構築",
   "welcome.recentWorkspaces": "最近のワークスペース",
   "welcome.proTip": "プロのヒント",

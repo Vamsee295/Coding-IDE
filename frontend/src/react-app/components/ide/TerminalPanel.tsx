@@ -182,6 +182,10 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
         if (tid && socketRef.current?.connected) socketRef.current.emit("terminal-input", { terminalId: tid, data });
       });
 
+      // Welcome branding
+      session.terminal.write('\x1b[1;36mWelcome to OLLAMA AI\x1b[0m\r\n');
+      session.terminal.write('\x1b[90mLocal AI Code Editor — Reimagined\x1b[0m\r\n\r\n');
+
       session.terminal.onResize(({ cols, rows }) => {
         const tid = terminalIds.current.get(tabId);
         if (tid && socketRef.current?.connected) socketRef.current.emit("resize", { terminalId: tid, cols, rows });

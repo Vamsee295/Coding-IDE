@@ -231,7 +231,7 @@ export default function ImportVSCodeModal({ isOpen, onClose, onImported }: Impor
                     <span className="text-[11px] text-ide-text-secondary">
                         {selected.size > 0
                             ? `${selected.size} extension(s) selected for import`
-                            : 'Select extensions to import them into StackFlow IDE'}
+                            : 'Select extensions to import them into OLLAMA AI'}
                     </span>
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" onClick={onClose} className="h-8 px-4 text-xs text-ide-text-secondary">

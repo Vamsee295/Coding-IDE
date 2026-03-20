@@ -1,6 +1,6 @@
-# StackFlow-IDE — Backend
+# OLLAMA AI — Backend
 
-The backend of StackFlow-IDE is a Spring Boot application that provides RESTful APIs for file/project management and a WebSocket handler for real-time terminal execution.
+The backend of OLLAMA AI is a Spring Boot application that provides RESTful APIs for file/project management and a WebSocket handler for real-time terminal execution.
 
 ## 🛠️ Technology Stack
 

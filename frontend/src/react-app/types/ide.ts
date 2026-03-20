@@ -19,6 +19,7 @@ export interface AIAction {
   line?: number;         // for insert_at_line
   fromLine?: number;     // for replace_range
   toLine?: number;       // for replace_range
+  isRevert?: boolean;    // for revert flow
 }
 
 
@@ -29,6 +30,25 @@ export interface ChatMessage {
   timestamp: Date;
   actions?: AIAction[];
   attachedImages?: string[];
+  applied?: boolean; // Track if actions were applied
+}
+
+export interface Snapshot {
+  id: string;
+  timestamp: Date;
+  messageId: string;
+  files: {
+    path: string;
+    originalContent: string;
+    modifiedContent: string;
+  }[];
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  timestamp: Date;
 }
 
 export interface EditorTab {

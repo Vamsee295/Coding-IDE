@@ -1,6 +1,6 @@
-# StackFlow-IDE — Frontend
+# OLLAMA AI — Frontend
 
-The frontend of StackFlow-IDE is a React-based application built with Vite and TypeScript. It provides a rich, interactive interface for code editing, terminal usage, and AI integration.
+The frontend of OLLAMA AI is a React-based application built with Vite and TypeScript. It provides a rich, interactive interface for code editing, terminal usage, and AI integration.
 
 ## 🛠️ Technology Stack
 

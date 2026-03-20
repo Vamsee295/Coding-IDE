@@ -1,6 +1,8 @@
 import { GitBranch, AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 import { useSettings } from '@/react-app/contexts/SettingsContext';
 import { getTranslation } from '@/react-app/lib/i18n';
+import { useStatusBar } from '@/react-app/contexts/StatusBarContext';
+import { useIdeCommand } from '@/react-app/contexts/IdeCommandContext';
 
 interface StatusBarProps {
     language?: string;
@@ -26,6 +28,11 @@ export default function StatusBar({
 }: StatusBarProps) {
     const { settings } = useSettings();
     const t = (key: string) => getTranslation(settings.language, key);
+    const { items: extensionItems } = useStatusBar();
+    const { dispatchCommand } = useIdeCommand();
+
+    const leftItems = [...extensionItems].filter(i => i.alignment === 'left').sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    const rightItems = [...extensionItems].filter(i => i.alignment === 'right').sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
     const langLabel: Record<string, string> = {
         typescript: 'TypeScript',
@@ -45,7 +52,7 @@ export default function StatusBar({
     };
 
     return (
-        <div className="h-6 bg-indigo-900/80 border-t border-ide-border flex items-center justify-between px-3 text-[11px] text-indigo-200 select-none shrink-0">
+        <div className="h-7 bg-black/40 backdrop-blur-md border-t border-white/5 flex items-center justify-between px-3 text-[10px] text-ide-text-secondary/80 font-medium select-none shrink-0 z-20">
             {/* Left section */}
             <div className="flex items-center gap-4">
                 {/* Git branch */}
@@ -77,10 +84,36 @@ export default function StatusBar({
                         <span>{getTranslation(settings.language, 'statusbar.noProblems')}</span>
                     </div>
                 )}
+
+                {/* Extension Items (Left) */}
+                {leftItems.map(item => (
+                    <div 
+                        key={item.id} 
+                        className={`flex items-center gap-1 ${item.command ? 'cursor-pointer hover:text-white transition-colors' : ''} ${item.color || ''}`}
+                        title={item.tooltip}
+                        onClick={() => item.command && dispatchCommand(item.command as any)}
+                    >
+                        {item.icon}
+                        <span>{item.text}</span>
+                    </div>
+                ))}
             </div>
 
             {/* Right section */}
             <div className="flex items-center gap-4">
+                {/* Extension Items (Right) */}
+                {rightItems.map(item => (
+                    <div 
+                        key={item.id} 
+                        className={`flex items-center gap-1 ${item.command ? 'cursor-pointer hover:text-white transition-colors' : ''} ${item.color || ''}`}
+                        title={item.tooltip}
+                        onClick={() => item.command && dispatchCommand(item.command as any)}
+                    >
+                        {item.icon}
+                        <span>{item.text}</span>
+                    </div>
+                ))}
+
                 {/* Cursor position */}
                 <div className="flex items-center gap-1">
                     <span>{getTranslation(settings.language, 'statusbar.line')} {line}, {getTranslation(settings.language, 'statusbar.column')} {column}</span>

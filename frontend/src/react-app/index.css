@@ -62,8 +62,6 @@
     --muted-foreground: 0 0% 64%;
     --accent: 239 84% 67%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
     --border: 0 0% 10%;
     --input: 0 0% 10%;
     --ring: 239 84% 67%;
@@ -77,16 +75,72 @@
     --ide-text-primary: 0 0% 90%;
     --ide-text-secondary: 0 0% 64%;
     --ide-hover: 0 0% 10%;
-    --ide-active: 239 84% 67% / 20%;
+  }
+
+  /* 🌸 Tokyo Night */
+  .theme-tokyo-night {
+    --background: 228 13% 13%;
+    --foreground: 226 70% 88%;
+    --primary: 221 89% 72%;
+    --secondary: 240 15% 10%;
+    --muted: 228 24% 21%;
+    --muted-foreground: 228 16% 56%;
+    --border: 228 24% 21%;
+    --ring: 221 89% 72%;
     
-    --sidebar: 0 0% 0%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 239 84% 67%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 10%;
-    --sidebar-ring: 239 84% 67%;
+    --ide-bg: 228 13% 13%; /* #1a1b26 */
+    --ide-sidebar: 240 15% 10%; /* #16161e */
+    --ide-editor: 228 13% 13%;
+    --ide-chat: 240 15% 10%;
+    --ide-border: 228 24% 21%; /* #292e42 */
+    --ide-accent: 221 89% 72%; /* #7aa2f7 */
+    --ide-text-primary: 226 70% 88%; /* #c0caf5 */
+    --ide-text-secondary: 228 16% 56%; /* #565f89 */
+    --ide-hover: 228 24% 21%;
+  }
+
+  /* 😸 GitHub Dark */
+  .theme-github-dark {
+    --background: 216 28% 7%;
+    --foreground: 212 25% 85%;
+    --primary: 212 100% 67%;
+    --secondary: 217 80% 2%;
+    --muted: 212 12% 21%;
+    --muted-foreground: 215 14% 56%;
+    --border: 212 12% 21%;
+    --ring: 212 100% 67%;
+    
+    --ide-bg: 216 28% 7%; /* #0d1117 */
+    --ide-sidebar: 217 80% 2%; /* #010409 */
+    --ide-editor: 216 28% 7%;
+    --ide-chat: 217 80% 2%;
+    --ide-border: 212 12% 21%; /* #30363d */
+    --ide-accent: 212 100% 67%; /* #58a6ff */
+    --ide-text-primary: 212 25% 85%; /* #c9d1d9 */
+    --ide-text-secondary: 215 14% 56%; /* #8b949e */
+    --ide-hover: 212 12% 21%;
+  }
+
+  /* ❄️ Nord */
+  .theme-nord {
+    --background: 220 16% 22%;
+    --foreground: 218 27% 92%;
+    --primary: 193 43% 67%;
+    --secondary: 220 17% 17%;
+    --muted: 220 16% 28%;
+    --muted-foreground: 219 14% 61%;
+    --border: 220 16% 28%;
+    --ring: 193 43% 67%;
+    
+    --ide-bg: 220 16% 22%; /* #2e3440 */
+    --ide-sidebar: 220 17% 17%; /* #242933 */
+    --ide-editor: 220 16% 22%;
+    --ide-chat: 220 17% 17%;
+    --ide-border: 220 16% 28%; /* #3b4252 */
+    --ide-accent: 193 43% 67%; /* #88c0d0 */
+    --ide-text-primary: 218 27% 92%; /* #eceff4 */
+    --ide-text-secondary: 219 14% 61%; /* #616e88 */
+    --ide-hover: 220 16% 28%;
   }
 }
 
@@ -111,20 +165,55 @@
 
   /* Custom scrollbar for IDE */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: hsl(var(--ide-bg));
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--ide-border));
-    border-radius: 4px;
+    background: hsl(var(--ide-border) / 50%);
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 40%);
+    background: hsl(var(--ide-accent) / 30%);
+    border: 1px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)];
+  }
+  
+  .glass-panel-dark {
+    @apply bg-black/20 backdrop-blur-lg border border-white/5 shadow-2xl;
+  }
+
+  .text-glow-indigo {
+    text-shadow: 0 0 12px hsl(var(--primary) / 0.5);
+  }
+
+  .bg-radial-gradient {
+    background: radial-gradient(circle at center, hsl(var(--background) / 0.8) 0%, hsl(var(--background)) 100%);
+  }
+
+  .animate-glow {
+    animation: glow 3s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from {
+      filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.3));
+    }
+    to {
+      filter: drop-shadow(0 0 15px hsl(var(--primary) / 0.7));
+    }
   }
 }

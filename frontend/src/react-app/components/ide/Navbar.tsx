@@ -360,7 +360,7 @@ export default function Navbar({ selectedModel, onModelChange }: NavbarProps) {
             {/* Center - Title */}
             <div className="flex-1 flex items-center justify-center pointer-events-none">
                 <span className="text-xs text-ide-text-secondary font-medium">
-                    Ollama IDE - Local AI Code Editor
+                    OLLAMA AI
                 </span>
             </div>
 

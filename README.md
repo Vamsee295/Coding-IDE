@@ -1,6 +1,6 @@
-# StackFlow-IDE
+# OLLAMA AI
 
-StackFlow-IDE is a modern, web-based Integrated Development Environment (IDE) built with a React frontend and a Spring Boot backend. It features a real-time terminal, local file system access, and integrated AI chat powered by Ollama.
+OLLAMA AI is a modern, web-based Integrated Development Environment (IDE) built with a React frontend and a Spring Boot backend. It features a real-time terminal, local file system access, and integrated AI chat powered by Ollama.
 
 ## 🚀 Key Features
 

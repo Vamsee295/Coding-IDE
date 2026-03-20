@@ -114,7 +114,7 @@ export default function DebugView({ rootPath: _rootPath }: DebugViewProps) {
                                     <div className="flex items-center gap-2 pl-4 text-xs">
                                         <span className="text-blue-300">name</span>
                                         <span className="text-ide-text-secondary">=</span>
-                                        <span className="text-green-300">"StackFlow"</span>
+                                        <span className="text-green-300">"OLLAMA AI"</span>
                                     </div>
                                     <div className="flex items-center gap-2 pl-4 text-xs">
                                         <span className="text-blue-300">isActive</span>

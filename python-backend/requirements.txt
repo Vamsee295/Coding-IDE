@@ -1,0 +1,9 @@
+flask
+flask-cors
+faiss-cpu
+sentence-transformers
+numpy
+mss
+pytesseract
+Pillow
+requests

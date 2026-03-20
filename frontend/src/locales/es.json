@@ -213,7 +213,7 @@
   "menu.help.toggleDevTools": "Alternar herramientas de desarrollo",
   "menu.help.processExplorer": "Abrir explorador de procesos",
   "menu.help.checkUpdates": "Buscar actualizaciones...",
-  "welcome.title": "StackFlow IDE",
+  "welcome.title": "OLLAMA AI",
   "welcome.subtitle": "Editor de código local con IA, creado para desarrolladores",
   "welcome.recentWorkspaces": "Espacios de trabajo recientes",
   "welcome.proTip": "Consejo profesional",

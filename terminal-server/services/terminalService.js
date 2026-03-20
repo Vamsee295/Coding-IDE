@@ -2,6 +2,7 @@ const pty = require('node-pty');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const outputBuffer = require('./outputBuffer');
+const workspaceService = require('./workspaceService');
 
 class TerminalService {
     constructor() {
@@ -12,7 +13,8 @@ class TerminalService {
         const { cwd, name, profile } = payload;
         console.log(`[Server] Received create-terminal event:`, payload);
         const terminalId = uuidv4();
-        const workingDir = cwd || os.homedir();
+        const root = workspaceService.getWorkspaceRoot();
+        const workingDir = cwd || root || os.homedir();
 
         let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         let shellArgs = [];

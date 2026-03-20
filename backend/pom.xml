@@ -11,8 +11,8 @@
 	<groupId>com.example</groupId>
 	<artifactId>demo</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>IDE</name>
-	<description>project od IDE</description>
+	<name>OLLAMA AI</name>
+	<description>OLLAMA AI Backend Project</description>
 	<url/>
 	<licenses>
 		<license/>

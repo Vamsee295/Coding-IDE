@@ -32,6 +32,6 @@ setupLsp(server);
 // ── START SERVER ────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8082;
 server.listen(PORT, () => {
-    console.log(`[Server] StackFlow IDE Terminal Service running on port ${PORT}`);
+    console.log(`[Server] OLLAMA AI Terminal Service running on port ${PORT}`);
     console.log(`[Server] Architecture: Modular + LSP Ready`);
 });

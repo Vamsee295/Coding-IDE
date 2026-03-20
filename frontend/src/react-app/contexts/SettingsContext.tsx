@@ -302,8 +302,32 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }, [settings]);
 
     useEffect(() => {
-        if (settings.theme === 'deep-night') {
-            document.documentElement.classList.add('dark');
+        // Remove existing theme classes
+        document.documentElement.classList.remove(
+            'dark',
+            'theme-tokyo-night',
+            'theme-github-dark',
+            'theme-nord'
+        );
+        
+        switch (settings.theme) {
+            case 'deep-night':
+            case 'dracula':
+            case 'catppuccin-mocha':
+            case 'one-dark-pro':
+                document.documentElement.classList.add('dark');
+                break;
+            case 'tokyo-night':
+                document.documentElement.classList.add('theme-tokyo-night');
+                break;
+            case 'github-dark':
+                document.documentElement.classList.add('theme-github-dark');
+                break;
+            case 'nord':
+                document.documentElement.classList.add('theme-nord');
+                break;
+            default:
+                document.documentElement.classList.add('dark');
         }
     }, [settings.theme]);
 

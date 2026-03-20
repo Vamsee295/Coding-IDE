@@ -61,7 +61,7 @@ export default function ReleaseNotesPage() {
             <div className="w-full max-w-2xl mx-auto space-y-10">
                 <div>
                     <h1 className="text-2xl font-bold text-ide-text-primary">Release Notes</h1>
-                    <p className="text-sm text-ide-text-secondary mt-1">StackFlow IDE — Local AI-powered code editor</p>
+                    <p className="text-sm text-ide-text-secondary mt-1">OLLAMA AI — Local AI-powered code editor</p>
                 </div>
 
                 {RELEASES.map((release, ri) => (

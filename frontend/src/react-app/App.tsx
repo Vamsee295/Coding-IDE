@@ -4,6 +4,7 @@ import HomePage from "@/react-app/pages/Home";
 import { SettingsProvider } from "@/react-app/contexts/SettingsContext";
 import { IdeCommandProvider } from "@/react-app/contexts/IdeCommandContext";
 import { ExtensionProvider } from "@/react-app/contexts/ExtensionContext";
+import { StatusBarProvider } from "@/react-app/contexts/StatusBarContext";
 
 export default function App() {
   useEffect(() => {
@@ -28,11 +29,13 @@ export default function App() {
     <SettingsProvider>
       <ExtensionProvider>
         <IdeCommandProvider>
-          <Router>
+          <StatusBarProvider>
+            <Router>
             <Routes>
               <Route path="/" element={<HomePage />} />
             </Routes>
           </Router>
+          </StatusBarProvider>
         </IdeCommandProvider>
       </ExtensionProvider>
     </SettingsProvider>

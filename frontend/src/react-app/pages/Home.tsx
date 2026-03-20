@@ -9,7 +9,9 @@ import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog"
 import SettingsView from "@/react-app/components/ide/SettingsView";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener, useIdeCommand } from "@/react-app/contexts/IdeCommandContext";
-import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab } from "@/react-app/types/ide";
+import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab, Snapshot, ChatSession } from "@/react-app/types/ide";
+import ChatHistoryModal from "@/react-app/components/ide/ChatHistoryModal";
+import ReviewBar from "@/react-app/components/ide/ReviewBar";
 import { createFile, updateFile, deleteFile } from "@/services/api";
 import { buildTreeFromFiles } from "@/utils/fileSystemHelper";
 import SearchModal from "@/react-app/components/ide/SearchModal";
@@ -20,11 +22,12 @@ import ReleaseNotesPage from "@/react-app/components/ide/ReleaseNotesPage";
 import KeyboardShortcutsModal from "@/react-app/components/ide/KeyboardShortcutsModal";
 import DebugToolbar from "@/react-app/components/ide/DebugToolbar";
 import CommandPalette from "@/react-app/components/ide/CommandPalette";
+import DiffPreviewModal from "@/react-app/components/ide/DiffPreviewModal";
 import { debugService } from "@/services/debugService";
 import { fsService } from "@/services/fsService";
 import { eventService } from "@/services/eventService";
 import { commandService } from "@/services/commandService";
-import { openWorkspace as openBackendWorkspace } from "@/services/workspaceService";
+import { openWorkspace as openBackendWorkspace, reindexWorkspace, searchContext, searchVectorContext, analyzeScreen } from "@/services/workspaceService";
 import { cn } from "@/react-app/lib/utils";
 import { aiOrchestrator } from "@/services/aiOrchestrator";
 import { CONFIG } from "@/react-app/lib/config";
@@ -74,6 +77,20 @@ export default function HomePage() {
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [chatPanelWidth, setChatPanelWidth] = useState(320);
   const [resizingPanel, setResizingPanel] = useState<"sidebar" | "chat" | null>(null);
+
+  const [diffPreviewState, setDiffPreviewState] = useState<{
+    isOpen: boolean;
+    action?: AIAction;
+    fileName: string;
+    originalContent: string;
+    modifiedContent: string;
+    messageId?: string;
+  }>({
+    isOpen: false,
+    fileName: "",
+    originalContent: "",
+    modifiedContent: "",
+  });
 
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [replaceModalOpen, setReplaceModalOpen] = useState(false);
@@ -177,6 +194,12 @@ export default function HomePage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>(Date.now().toString());
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [pendingReview, setPendingReview] = useState(false);
+  const [reviewFiles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [dialogState, setDialogState] = useState<{
     open: boolean;
@@ -196,6 +219,19 @@ export default function HomePage() {
   // console.log("[Home] Rendered with initialTerminalCwd:", initialTerminalCwd);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
+  // Load/Save Sessions
+  useEffect(() => {
+    const saved = localStorage.getItem("ide-chat-sessions");
+    if (saved) {
+      try { setSessions(JSON.parse(saved)); } catch (e) { }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessions.length > 0) {
+      localStorage.setItem("ide-chat-sessions", JSON.stringify(sessions));
+    }
+  }, [sessions]);
 
   const toggleSidebarTab = useCallback((tab: SidebarTab) => {
     if (sidebarTab === tab) {
@@ -222,42 +258,23 @@ export default function HomePage() {
   // Ref to the terminal panel — used to imperatively cd when a project is opened
   const terminalRef = useRef<TerminalPanelHandle>(null);
 
-  // Reopen from last working state or default to User Home
+  // On startup: do NOT auto-open the last workspace.
+  // Only set the terminal's initial CWD to the user home directory.
+  // The user must explicitly open a folder via WelcomePage or menu.
   useEffect(() => {
-    const restoreWorkspace = async () => {
-      const lastWorkspace = localStorage.getItem("ide-last-active-workspace");
-
-      let pathLoaded = false;
-      // If we have a saved state, attempt to restore it
-      if (lastWorkspace) {
-        try {
-          // Check if it still exists before opening
-          const existsInfo = await fsService.checkExists(lastWorkspace);
-          if (existsInfo.exists && existsInfo.isDirectory) {
-            await openWorkspacePath(lastWorkspace);
-            pathLoaded = true;
-          }
-        } catch (e) {
-          console.error("Failed to restore last workspace, falling back to home", e);
-        }
-      }
-
-      // Check if we need to set the terminal to a default safe path if no workspace was restored
-      // But do NOT call openWorkspacePath on the user home directory as it will scan all user files.
+    const initTerminalCwd = async () => {
       try {
         const res = await fetch(`${CONFIG.TERMINAL_API_URL}/user-home`);
         const data = await res.json();
         if (data.path) {
-          if (!pathLoaded && !activeProjectPath) {
-            setInitialTerminalCwd(data.path);
-          }
+          setInitialTerminalCwd(data.path);
         }
       } catch (e) {
         console.error("Failed to fetch user home for terminal fallback.", e);
       }
     };
 
-    restoreWorkspace().catch(console.error);
+    initTerminalCwd().catch(console.error);
   }, []);
 
   const getProjectContext = useCallback((items: FileItem[], depth = 0, currentCount = { val: 0 }): string => {
@@ -418,6 +435,31 @@ export default function HomePage() {
           contextBlock += `Folder: "${file.name}" (Tagged for context)\n\n`;
         }
       }
+    } else if (activeProjectPath) {
+      // automated context builder (Cursor-style + Vector DB)
+      try {
+        // Try keyword search first
+        const keywordResults = await searchContext(content, 2);
+        // Try semantic vector search next
+        const vectorResults = await searchVectorContext(content, 3);
+        
+        // Combine results, avoiding duplicates for better context
+        const combinedResults = [...keywordResults];
+        for (const v of vectorResults) {
+            if (!combinedResults.some(k => k.path === v.path)) {
+                combinedResults.push(v);
+            }
+        }
+
+        if (combinedResults.length > 0) {
+          contextBlock += "Project Context (Semantic Search):\n";
+          for (const file of combinedResults) {
+            contextBlock += `File: "${file.name}"\n\`\`\`${getLanguage(file.name)}\n${file.content}\n\`\`\`\n\n`;
+          }
+        }
+      } catch (e) {
+        console.error("Automated context search failed", e);
+      }
     }
 
     // 3. Add AI Action Protocol System Prompt
@@ -531,6 +573,33 @@ export default function HomePage() {
 
     handleSendMessage(actionMessages[action]);
   }, [tabs, handleSendMessage]);
+
+  const handleAnalyzeScreen = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await analyzeScreen();
+      if (result.success && result.text) {
+        // Send a message with the screen content as context
+        await handleSendMessage(
+           `Analyze what's on my screen and help me. Screen output:\n\n${result.text}`,
+           [],
+           result.image ? [result.image] : []
+        );
+      } else if (!result.success) {
+        const errorMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: `**Screen Analysis Failed**: ${result.error || "Ensure Tesseract OCR is installed and the Python backend is running at http://localhost:5001."}`,
+            timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorMsg]);
+      }
+    } catch (e: any) {
+      console.error("Screen analysis failed", e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [handleSendMessage]);
 
 
 
@@ -822,6 +891,62 @@ export default function HomePage() {
     }
   }, [tabs, activeProjectId]);
 
+  const handleNewChat = useCallback(() => {
+    if (messages.length > 0) {
+      const newSession: ChatSession = {
+        id: currentSessionId,
+        title: messages[0].content.slice(0, 30) + (messages[0].content.length > 30 ? "..." : ""),
+        messages: [...messages],
+        timestamp: new Date()
+      };
+      setSessions(prev => [newSession, ...prev]);
+    }
+    setMessages([]);
+    setCurrentSessionId(Date.now().toString());
+  }, [messages, currentSessionId]);
+
+  const handleViewHistory = useCallback(() => {
+    setIsHistoryOpen(true);
+  }, []);
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      setMessages(session.messages);
+      setCurrentSessionId(session.id);
+    }
+  }, [sessions]);
+
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
+  }, []);
+
+  const handleRevert = useCallback(async (messageId: string) => {
+    const snapshot = snapshots.find(s => s.messageId === messageId);
+    if (!snapshot) {
+      alert("No snapshot found for this action.");
+      return;
+    }
+
+    // Reverting the first file in the snapshot for now (multi-file revert needs more complex UI)
+    const file = snapshot.files[0];
+    if (file) {
+      setDiffPreviewState({
+        isOpen: true,
+        fileName: file.path.split(/[/\\]/).pop() || file.path,
+        originalContent: file.modifiedContent, // Swap for revert: current modified is "original"
+        modifiedContent: file.originalContent, // Original is what we want back
+        action: {
+          type: "write_file",
+          path: file.path,
+          content: file.originalContent,
+          isRevert: true // Flag to know we are reverting
+        },
+        messageId: messageId // Keep track of which message we are reverting
+      });
+    }
+  }, [snapshots]);
+
   const selectionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSelectionChange = useCallback((payload: any) => {
     // Update status bar cursor position
@@ -834,7 +959,74 @@ export default function HomePage() {
     }, 300);
   }, []);
 
-  const handleApplyAction = useCallback(async (action: AIAction) => {
+  const confirmApplyAction = useCallback(async (editedContent?: string) => {
+    const { action, messageId } = diffPreviewState;
+    const modifiedContent = editedContent ?? diffPreviewState.modifiedContent;
+    if (!action) return;
+
+    setDiffPreviewState(prev => ({ ...prev, isOpen: false }));
+
+    // Mark message status
+    if (messageId) {
+      setMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return { ...m, applied: !action.isRevert };
+        }
+        return m;
+      }));
+    }
+
+    // Create a snapshot before applying
+    if (!action.isRevert) {
+      const newSnapshot: Snapshot = {
+        id: Date.now().toString(),
+        timestamp: new Date(),
+        messageId: messageId || "unknown",
+        files: [{
+          path: action.path || "",
+          originalContent: diffPreviewState.originalContent,
+          modifiedContent: modifiedContent
+        }]
+      };
+      setSnapshots(prev => [...prev, newSnapshot]);
+    }
+
+    // ... rest of writing logic ...
+    if (action.path) {
+      // Resolve path
+      const isAbsolute = /^[a-zA-Z]:[\\/]/.test(action.path);
+      const targetPath = (isAbsolute || !activeProjectPath) ? action.path : `${activeProjectPath}\\${action.path}`.replace(/\\\\/g, '\\');
+
+      try {
+        await fsService.writeFile(targetPath, modifiedContent);
+        setTabs(prev => prev.map(t => (t.path === targetPath || t.path === action.path) ? { ...t, content: modifiedContent, isDirty: false } : t));
+        
+        if (action.type === "create_file" && !action.isRevert) {
+          const fileName = action.path.split(/[/\\]/).pop() || "new_file";
+          const newFileItem: FileItem = {
+            id: `fs-${targetPath}`,
+            name: fileName,
+            type: "file",
+            path: targetPath,
+            content: modifiedContent
+          };
+          setFiles(prev => [...prev, newFileItem]);
+        } else {
+          setFiles(prev => findAndUpdateFile(prev, `fs-${targetPath}`, (f) => ({ ...f, content: modifiedContent })));
+        }
+      } catch (e) {
+        console.error("Failed to apply file changes", e);
+      }
+    }
+  }, [diffPreviewState, findAndUpdateFile]);
+
+  const handleApplyAction = useCallback(async (action: AIAction, messageId: string) => {
+    // Resolve absolute path if necessary
+    const isAbsolute = action.path && /^[a-zA-Z]:[\\/]/.test(action.path);
+    const resolvedPath = (action.path && !isAbsolute && activeProjectPath) 
+      ? `${activeProjectPath}\\${action.path}`.replace(/\\\\/g, '\\') 
+      : action.path;
+
     switch (action.type) {
       case "run_command":
         if (action.command && terminalRef.current) {
@@ -842,93 +1034,40 @@ export default function HomePage() {
           terminalRef.current.executeCommand(action.command);
         }
         break;
-      case "write_file":
-        if (action.path && action.content) {
-          setFiles(prev => findAndUpdateFile(prev, `fs-${action.path}`, (f) => ({ ...f, content: action.content })));
-          setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: action.content!, isDirty: true } : t));
-          try {
-            await fsService.writeFile(action.path, action.content);
-          } catch (e) {
-            console.error("Failed to apply file write", e);
-          }
-        }
-        break;
-      case "create_file":
-        if (action.path && action.content) {
-          try {
-            await fsService.writeFile(action.path, action.content);
-            const fileName = action.path.split(/[/\\]/).pop() || "new_file";
-            const newFileItem: FileItem = {
-              id: `fs-${action.path}`,
-              name: fileName,
-              type: "file",
-              path: action.path,
-              content: action.content
-            };
-            setFiles(prev => [...prev, newFileItem]);
-          } catch (e) {
-            console.error("Failed to create file", e);
-          }
-        }
-        break;
       case "delete_file":
-        if (action.path) {
+        if (resolvedPath) {
           try {
-            await fsService.deleteItem(action.path);
-            setFiles(prev => prev.filter(f => f.path !== action.path && f.id !== `fs-${action.path}`));
-            setTabs(prev => prev.filter(t => t.path !== action.path));
+            await fsService.deleteItem(resolvedPath);
+            setFiles(prev => prev.filter(f => f.path !== resolvedPath && f.id !== `fs-${resolvedPath}`));
+            setTabs(prev => prev.filter(t => t.path !== resolvedPath));
           } catch (e) {
             console.error("Failed to delete file", e);
           }
         }
         break;
       case "rename_file":
-        if (action.path && action.newPath) {
+        if (resolvedPath && action.newPath) {
           try {
-            const content = await fsService.readFile(action.path);
-            await fsService.writeFile(action.newPath, content);
-            await fsService.deleteItem(action.path);
+            const isNewAbsolute = /^[a-zA-Z]:[\\/]/.test(action.newPath);
+            const resolvedNewPath = (!isNewAbsolute && activeProjectPath)
+              ? `${activeProjectPath}\\${action.newPath}`.replace(/\\\\/g, '\\')
+              : action.newPath;
+
+            const content = await fsService.readFile(resolvedPath);
+            await fsService.writeFile(resolvedNewPath, content);
+            await fsService.deleteItem(resolvedPath);
             const newName = action.newPath.split(/[/\\]/).pop() || action.newPath;
-            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, path: action.newPath, name: newName, id: `fs-${action.newPath}` } : t));
-            setFiles(prev => prev.map(f => f.path === action.path ? { ...f, path: action.newPath, name: newName, id: `fs-${action.newPath}` } : f));
+            setTabs(prev => prev.map(t => t.path === resolvedPath ? { ...t, path: resolvedNewPath, name: newName, id: `fs-${resolvedNewPath}` } : t));
+            setFiles(prev => prev.map(f => f.path === resolvedPath ? { ...f, path: resolvedNewPath, name: newName, id: `fs-${resolvedNewPath}` } : f));
           } catch (e) {
             console.error("Failed to rename file", e);
           }
         }
         break;
-      case "insert_at_line":
-        if (action.path && action.content !== undefined && action.line !== undefined) {
-          try {
-            const existing = await fsService.readFile(action.path);
-            const lines = existing.split('\n');
-            lines.splice(action.line, 0, action.content);
-            const updated = lines.join('\n');
-            await fsService.writeFile(action.path, updated);
-            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: updated, isDirty: true } : t));
-          } catch (e) {
-            console.error("Failed to insert at line", e);
-          }
-        }
-        break;
-      case "replace_range":
-        if (action.path && action.content !== undefined && action.fromLine !== undefined && action.toLine !== undefined) {
-          try {
-            const existing = await fsService.readFile(action.path);
-            const lines = existing.split('\n');
-            lines.splice(action.fromLine - 1, action.toLine - action.fromLine + 1, action.content);
-            const updated = lines.join('\n');
-            await fsService.writeFile(action.path, updated);
-            setTabs(prev => prev.map(t => t.path === action.path ? { ...t, content: updated, isDirty: true } : t));
-          } catch (e) {
-            console.error("Failed to replace_range", e);
-          }
-        }
-        break;
       case "read_file":
-        if (action.path) {
+        if (resolvedPath) {
           try {
-            const content = await fsService.readFile(action.path);
-            // Inject file content as a new assistant message for context
+            const content = await fsService.readFile(resolvedPath);
             setMessages(prev => [...prev, {
               id: Date.now().toString(),
               role: "assistant",
@@ -940,17 +1079,58 @@ export default function HomePage() {
           }
         }
         break;
+      case "write_file":
+      case "create_file":
+      case "insert_at_line":
+      case "replace_range":
+        if (resolvedPath) {
+          let originalContent = "";
+          try {
+            if (action.type !== "create_file") {
+              const openTab = tabs.find(t => t.path === resolvedPath || t.path === action.path);
+              if (openTab) {
+                originalContent = openTab.content;
+              } else {
+                originalContent = await fsService.readFile(resolvedPath);
+              }
+            }
+          } catch (e) { console.error("Could not read original file for diff", e); }
+
+          let modifiedContent = originalContent;
+
+          if (action.type === "write_file" || action.type === "create_file") {
+            modifiedContent = action.content || "";
+          } else if (action.type === "insert_at_line" && action.line !== undefined && action.content !== undefined) {
+            const lines = originalContent.split('\n');
+            lines.splice(action.line, 0, action.content);
+            modifiedContent = lines.join('\n');
+          } else if (action.type === "replace_range" && action.fromLine !== undefined && action.toLine !== undefined && action.content !== undefined) {
+            const lines = originalContent.split('\n');
+            lines.splice(action.fromLine - 1, action.toLine - action.fromLine + 1, action.content);
+            modifiedContent = lines.join('\n');
+          }
+
+          const fileName = action.path?.split(/[/\\]/).pop() || action.path || "Unnamed File";
+          
+          setDiffPreviewState({
+            isOpen: true,
+            action: { ...action, path: resolvedPath }, // Use resolved path for action in state
+            fileName,
+            originalContent,
+            modifiedContent,
+            messageId
+          });
+        }
+        break;
     }
-  }, [terminalRef, setTerminalVisible, findAndUpdateFile]);
+  }, [terminalRef, setTerminalVisible, tabs, findAndUpdateFile, activeProjectPath]);
 
 
-  // Track Recent Workspaces & Persist Last Active
+
+  // Track Recent Workspaces (history only — no auto-restore on startup)
   useEffect(() => {
     if (activeProjectPath) {
       try {
-        // Save as last active for restoration on reload
-        localStorage.setItem("ide-last-active-workspace", activeProjectPath);
-
         const historyStr = localStorage.getItem("ide-recent-workspaces");
         let history: string[] = historyStr ? JSON.parse(historyStr) : [];
         // Remove if it exists and push to front
@@ -1152,7 +1332,9 @@ export default function HomePage() {
         setInitialTerminalCwd(path);
         console.log("[Home] SUCCESS opening workspace. Path:", path, "initialTerminalCwd set to:", path);
         // Register on backend so terminal + project detector know the workspace
-        openBackendWorkspace(path).catch(() => { });
+        openBackendWorkspace(path)
+          .then(() => reindexWorkspace())
+          .catch(() => { });
         // Start file watcher for this workspace
         watcherSocketRef.current?.emit('watch-workspace', { rootPath: path });
         // Open a NEW terminal tab for this workspace and clear old ones
@@ -1167,6 +1349,23 @@ export default function HomePage() {
       alert("Error connecting to backend file system service.");
     }
   };
+
+  // Clone a remote Git repository into ~/cloned-repos and open it
+  const handleCloneRepo = useCallback(async (repoUrl: string) => {
+    try {
+      const resp = await fetch(`${CONFIG.TERMINAL_API_URL}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Clone failed');
+      // Open the cloned folder automatically
+      await openWorkspacePath(data.path);
+    } catch (e: any) {
+      alert(`Clone failed: ${e.message}`);
+    }
+  }, []);
 
   useIdeCommandListener("file.openLocalPath", async () => {
     try {
@@ -1433,6 +1632,14 @@ export default function HomePage() {
 
   return (
     <div className="h-screen flex flex-col bg-ide-bg overflow-hidden">
+      <DiffPreviewModal
+        isOpen={diffPreviewState.isOpen}
+        fileName={diffPreviewState.fileName}
+        originalContent={diffPreviewState.originalContent}
+        modifiedContent={diffPreviewState.modifiedContent}
+        onAccept={confirmApplyAction}
+        onCancel={() => setDiffPreviewState(prev => ({ ...prev, isOpen: false }))}
+      />
       <input
         type="file"
         ref={fallbackFileInputRef}
@@ -1451,7 +1658,7 @@ export default function HomePage() {
       />
       <div className="flex-1 flex flex-col min-h-0">
         <div className={cn(
-          "flex-1 flex min-h-0",
+          "flex-1 flex min-h-0 relative",
           settings.layoutSidebarPosition === 'right' && "flex-row-reverse"
         )}>
           {!settings.zenMode && (
@@ -1483,81 +1690,88 @@ export default function HomePage() {
               }}
             />
           )}
-          <Editor
-            tabs={tabs}
-            onTabSelect={handleTabSelect}
-            onTabClose={handleTabClose}
-            onContentChange={handleContentChange}
-            onTabRename={handleTabRename}
-            onSelectionChange={handleSelectionChange}
-          />
-          {/* Debug Toolbar overlay */}
-          {debugActive && (
-            <div className="absolute top-0 left-0 right-0 z-30 flex justify-center pointer-events-none" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
-              <div className="pointer-events-auto">
-                <DebugToolbar
-                  isActive={debugActive}
-                  isPaused={debugPaused}
-                  onContinue={() => { debugService.continue(); setDebugPaused(false); }}
-                  onStepOver={() => { debugService.stepOver(); setDebugPaused(false); }}
-                  onStepInto={() => { debugService.stepInto(); setDebugPaused(false); }}
-                  onStepOut={() => { debugService.stepOut(); setDebugPaused(false); }}
-                  onPause={() => debugService.pause()}
-                  onStop={() => { debugService.disconnect(); setDebugActive(false); setDebugPaused(false); }}
-                  onRestart={() => {
-                    debugService.disconnect();
-                    setDebugActive(false);
-                    const activeTab = tabs.find(t => t.isActive);
-                    if (activeTab?.path) {
-                      setTimeout(() => {
-                        debugService.launch({ language: activeTab.language || getLanguage(activeTab.name), filePath: activeTab.path! });
-                        setDebugActive(true);
-                      }, 500);
-                    }
-                  }}
-                />
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            <Editor
+              tabs={tabs}
+              onTabSelect={handleTabSelect}
+              onTabClose={handleTabClose}
+              onContentChange={handleContentChange}
+              onTabRename={handleTabRename}
+              onSelectionChange={handleSelectionChange}
+            />
+            {/* Debug Toolbar overlay */}
+            {debugActive && (
+              <div className="absolute top-0 left-0 right-0 z-30 flex justify-center pointer-events-none">
+                <div className="pointer-events-auto">
+                  <DebugToolbar
+                    isActive={debugActive}
+                    isPaused={debugPaused}
+                    onContinue={() => { debugService.continue(); setDebugPaused(false); }}
+                    onStepOver={() => { debugService.stepOver(); setDebugPaused(false); }}
+                    onStepInto={() => { debugService.stepInto(); setDebugPaused(false); }}
+                    onStepOut={() => { debugService.stepOut(); setDebugPaused(false); }}
+                    onPause={() => debugService.pause()}
+                    onStop={() => { debugService.disconnect(); setDebugActive(false); setDebugPaused(false); }}
+                    onRestart={() => {
+                      debugService.disconnect();
+                      setDebugActive(false);
+                      const activeTab = tabs.find(t => t.isActive);
+                      if (activeTab?.path) {
+                        setTimeout(() => {
+                          debugService.launch({ language: activeTab.language || getLanguage(activeTab.name), filePath: activeTab.path! });
+                          setDebugActive(true);
+                        }, 500);
+                      }
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-          {/* Welcome Page overlay */}
-          {showWelcomePage && (
-            <div className="absolute inset-0 z-20 flex ml-[var(--sidebar-w,256px)]" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
-              <div className="flex-1 relative">
-                <button
-                  onClick={() => setShowWelcomePage(false)}
-                  className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
-                >✕ Close</button>
-                <WelcomePage
-                  recentWorkspaces={JSON.parse(localStorage.getItem('ide-recent-workspaces') || '[]')}
-                  onOpenFolder={() => { setShowWelcomePage(false); dispatchCommand('file.openFolder'); }}
-                  onNewFile={() => { setShowWelcomePage(false); dispatchCommand('file.newTextFile'); }}
-                  onOpenFile={async (path) => { setShowWelcomePage(false); await openWorkspacePath(path); }}
-                  onOpenCommandPalette={() => { setShowWelcomePage(false); dispatchCommand('view.commandPalette'); }}
-                />
+            )}
+            {/* Welcome Page overlay — shown when no folder is open OR via Help > Welcome */}
+            {(showWelcomePage || !activeProjectPath) && (
+              <div className="absolute inset-0 z-20 flex bg-ide-bg">
+                <div className="flex-1 relative">
+                  {showWelcomePage && activeProjectPath && (
+                    <button
+                      onClick={() => setShowWelcomePage(false)}
+                      className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
+                    >✕ Close</button>
+                  )}
+                  <WelcomePage
+                    recentWorkspaces={JSON.parse(localStorage.getItem('ide-recent-workspaces') || '[]')}
+                    onOpenFolder={() => { setShowWelcomePage(false); dispatchCommand('file.openFolder'); }}
+                    onNewFile={() => { setShowWelcomePage(false); dispatchCommand('file.newTextFile'); }}
+                    onOpenFile={async (path) => { setShowWelcomePage(false); await openWorkspacePath(path); }}
+                    onOpenCommandPalette={() => { setShowWelcomePage(false); dispatchCommand('view.commandPalette'); }}
+                    onCloneRepo={async (url: string) => { setShowWelcomePage(false); await handleCloneRepo(url); }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-          {/* Release Notes overlay */}
-          {showReleaseNotes && (
-            <div className="absolute inset-0 z-20 flex" style={{ left: sidebarCollapsed ? 0 : sidebarWidth }}>
-              <div className="flex-1 relative">
-                <button
-                  onClick={() => setShowReleaseNotes(false)}
-                  className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
-                >✕ Close</button>
-                <ReleaseNotesPage />
+            )}
+            {/* Release Notes overlay */}
+            {showReleaseNotes && (
+              <div className="absolute inset-0 z-20 flex bg-ide-bg">
+                <div className="flex-1 relative">
+                  <button
+                    onClick={() => setShowReleaseNotes(false)}
+                    className="absolute top-3 right-4 z-10 text-ide-text-secondary hover:text-white text-sm bg-ide-sidebar px-3 py-1 rounded border border-ide-border"
+                  >✕ Close</button>
+                  <ReleaseNotesPage />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
           {aiChatVisible && (
             <>
               <div
-                className="w-1 bg-transparent hover:bg-indigo-500/50 cursor-col-resize z-10 transition-colors active:bg-indigo-500 shrink-0 select-none"
+                className="w-2 cursor-col-resize z-20 shrink-0 select-none relative group mx-[-4px]"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   setResizingPanel("chat");
                 }}
-              />
+              >
+                <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-ide-border group-hover:bg-indigo-500 group-active:bg-indigo-500 transition-colors" />
+              </div>
               <ChatPanel
                 messages={messages}
                 onSendMessage={handleSendMessage}
@@ -1568,6 +1782,10 @@ export default function HomePage() {
                 files={files}
                 width={chatPanelWidth}
                 isResizing={resizingPanel === "chat"}
+                onNewChat={handleNewChat}
+                onViewHistory={handleViewHistory}
+                onRevert={handleRevert}
+                onAnalyzeScreen={handleAnalyzeScreen}
               />
             </>
           )}
@@ -1628,6 +1846,28 @@ export default function HomePage() {
       <CommandPalette
         files={files}
         onOpenFile={handleFileSelect}
+      />
+      
+      {/* New AI Components */}
+      <ChatHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        sessions={sessions}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+      />
+      
+      <ReviewBar
+        isOpen={pendingReview}
+        files={reviewFiles}
+        onAcceptAll={() => setPendingReview(false)}
+        onRejectAll={() => {
+          setPendingReview(false);
+          if (reviewFiles[0]) handleRevert(reviewFiles[0].path);
+        }}
+        onModify={() => setPendingReview(false)}
+        onExplain={() => alert("Explaining changes...")}
+        onFileClick={(path) => alert(`Inspecting ${path}`)}
       />
     </div>
   );

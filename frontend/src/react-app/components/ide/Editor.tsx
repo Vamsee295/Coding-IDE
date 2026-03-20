@@ -1,12 +1,15 @@
 import MonacoEditor, { OnMount, BeforeMount } from "@monaco-editor/react";
 import { useRef, useEffect, useState } from "react";
-import { X, Circle, ChevronRight } from "lucide-react";
+import { X, Circle, ChevronRight, Sparkles } from "lucide-react";
 import { EditorTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
-import { useIdeCommandListener } from "@/react-app/contexts/IdeCommandContext";
+import { useIdeCommandListener, useIdeCommand } from "@/react-app/contexts/IdeCommandContext";
 import { connectLanguageServer, disconnectLanguageServer } from "@/services/lspClient";
 import { getFileIconUrl } from "@/react-app/lib/fileIcons";
+import { aiCompletionService } from "@/services/aiCompletionService";
+
+let inlineCompletionsRegistered = false;
 
 export type SelectionChangePayload = {
   path?: string;
@@ -76,6 +79,11 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [tempTabName, setTempTabName] = useState("");
 
+  const [showFloatingMenu, setShowFloatingMenu] = useState(false);
+  const [floatingMenuPos, setFloatingMenuPos] = useState({ top: 0, left: 0 });
+
+  const { dispatchCommand } = useIdeCommand();
+
   const selectionDisposeRef = useRef<(() => void) | null>(null);
 
   const handleBeforeMount: BeforeMount = (monaco) => {
@@ -101,6 +109,41 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
     tsDefaults.setCompilerOptions(compilerOptions);
     jsDefaults.setCompilerOptions(compilerOptions);
     // Semantic validation now backed by our actual typescript-language-server
+
+    // Register AI Inline Completions if not already registered globally
+    if (!inlineCompletionsRegistered) {
+      inlineCompletionsRegistered = true;
+      monaco.languages.registerInlineCompletionsProvider('*', {
+        provideInlineCompletions: async (model: any, position: any, _context: any, token: any) => {
+          // If suggestion was explicitly triggered vs typing
+          // We can optimize here, but for now just fetch
+          const fullText = model.getValue();
+          const offset = model.getOffsetAt(position);
+          
+          const prefix = fullText.substring(0, offset);
+          const suffix = fullText.substring(offset);
+
+          const suggestion = await aiCompletionService.getCompletion(prefix, suffix, token);
+
+          if (!suggestion) {
+             return { items: [] };
+          }
+
+          return {
+             items: [{
+               insertText: suggestion,
+               range: new monaco.Range(
+                 position.lineNumber,
+                 position.column,
+                 position.lineNumber,
+                 position.column
+               )
+             }]
+          };
+        },
+        freeInlineCompletions: () => { }
+      });
+    }
   };
 
   const handleEditorDidMount: OnMount = (editor) => {
@@ -128,10 +171,50 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
           startLine: sel?.startLineNumber ?? 0,
           endLine: sel?.endLineNumber ?? 0,
         });
+
+        if (selectedText.trim().length > 0 && sel && (sel.endLineNumber !== sel.startLineNumber || sel.endColumn !== sel.startColumn)) {
+          setTimeout(() => {
+            const currentEditor = editorRef.current;
+            if (!currentEditor) return;
+            const endPos = sel.getEndPosition();
+            const scrolledPos = currentEditor.getScrolledVisiblePosition(endPos);
+            if (scrolledPos) {
+              setFloatingMenuPos({ top: scrolledPos.top + 35, left: scrolledPos.left });
+              setShowFloatingMenu(true);
+            }
+          }, 100);
+        } else {
+          setShowFloatingMenu(false);
+        }
       });
       selectionDisposeRef.current = () => disposable.dispose();
     }
   };
+
+  const lastContentRef = useRef(activeTab?.content);
+
+  useEffect(() => {
+    if (!editorRef.current || !activeTab) return;
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    const currentContent = activeTab.content || "";
+    if (currentContent !== lastContentRef.current) {
+      lastContentRef.current = currentContent;
+      if (model.getValue() !== currentContent) {
+        const selection = editorRef.current.getSelection();
+        editorRef.current.executeEdits("external-update", [{
+          range: model.getFullModelRange(),
+          text: currentContent,
+          forceMoveMarkers: true
+        }]);
+        if (selection) {
+          editorRef.current.setSelection(selection);
+        }
+      }
+    }
+  }, [activeTab?.content, activeTab]);
+
 
   useEffect(() => () => { 
       selectionDisposeRef.current?.();
@@ -318,14 +401,44 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
 
       {/* Monaco Editor */}
       {activeTab && (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative">
+          {/* Floating Refactor Menu */}
+          {showFloatingMenu && (
+            <div 
+              className="absolute z-50 flex items-center gap-1 p-1 bg-ide-sidebar border border-ide-border rounded-md shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+              style={{ top: floatingMenuPos.top, left: floatingMenuPos.left }}
+            >
+              <button 
+                onClick={() => {
+                  dispatchCommand("view.toggleAiChat");
+                  setShowFloatingMenu(false);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded transition-colors"
+                title="Open AI Chat"
+              >
+                <Sparkles className="w-3 h-3 text-indigo-300" />
+                Explain / Refactor
+              </button>
+              <button 
+                onClick={() => {
+                  editorRef.current?.trigger('menu', 'editor.action.clipboardCopyAction', null);
+                  setShowFloatingMenu(false);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-ide-text-secondary hover:text-white hover:bg-ide-hover rounded transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+          )}
           <MonacoEditor
             height="100%"
             language={getLanguage(activeTab.name)}
             path={activeTab.path || activeTab.name}
-            value={activeTab.content}
             theme={settings.theme === 'snowy-studio' ? "vs-light" : "vs-dark"}
-            onChange={(value) => onContentChange(activeTab.id, value || "")}
+            onChange={(value) => {
+              lastContentRef.current = value || "";
+              onContentChange(activeTab.id, value || "");
+            }}
             onMount={handleEditorDidMount}
             beforeMount={handleBeforeMount}
             options={{
@@ -336,9 +449,9 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
               lineNumbers: settings.lineNumbers ? "on" : "off",
               bracketPairColorization: { enabled: settings.bracketPairColorization },
               scrollBeyondLastLine: false,
-              smoothScrolling: true,
-              cursorBlinking: "smooth",
-              cursorSmoothCaretAnimation: "on",
+              smoothScrolling: false,
+              cursorBlinking: "blink",
+              cursorSmoothCaretAnimation: "off",
               padding: { top: 16, bottom: 16 },
               renderLineHighlight: "all",
               autoIndent: "full",

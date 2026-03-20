@@ -110,14 +110,22 @@ export const aiOrchestrator = {
      * Removes all <ai_action> blocks from the text to provide a clean chat response.
      */
     stripActions(text: string): string {
-        return text.replace(/<ai_action>[\s\S]*?<\/ai_action>/g, "").trim();
+        // First, remove action blocks (potentially wrapped in code fences)
+        const stripped = text
+            .replace(/```[a-z]*\n\s*<ai_action>[\s\S]*?<\/ai_action>\s*\n```/g, "")
+            .replace(/<ai_action>[\s\S]*?<\/ai_action>/g, "")
+            .trim();
+            
+        // Final cleanup for common AI response boilerplate if it's the only thing left
+        if (stripped === "undefined" || !stripped) return "I've processed your request.";
+        return stripped;
     },
 
     /**
      * The Master System Prompt that tells the AI how to use the Action Protocol.
      */
     getSystemPrompt(): string {
-        return `You are an AI Coding Assistant deeply integrated into the StackFlow IDE.
+        return `You are an AI Coding Assistant deeply integrated into the OLLAMA AI IDE.
 You can modify files and run commands by wrapping your actions in special XML-like tags.
 Always provide a brief explanation of what you are doing before or after the action block.
 

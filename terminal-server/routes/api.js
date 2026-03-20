@@ -6,6 +6,8 @@ const vm = require('vm');
 const { spawn, exec, execFile } = require('child_process');
 const outputBuffer = require('../services/outputBuffer');
 const terminalService = require('../services/terminalService');
+const workspaceService = require('../services/workspaceService');
+const indexerService = require('../services/indexerService');
 
 const router = express.Router();
 
@@ -18,6 +20,26 @@ router.get('/user-home', (req, res) => {
 router.get('/health', (_req, res) => {
     res.json({ status: 'ok', terminals: terminalService.getActiveTerminalCount() });
 });
+
+// ── WORKSPACE ────────────────────────────────────────────────────────────
+router.post('/workspace/set', (req, res) => {
+    const { path } = req.body;
+    if (!path) return res.status(400).json({ error: 'path required' });
+    workspaceService.setWorkspaceRoot(path);
+    res.json({ status: 'ok', workspaceRoot: workspaceService.getWorkspaceRoot() });
+});
+
+router.get('/workspace/get', (req, res) => {
+    res.json({ workspaceRoot: workspaceService.getWorkspaceRoot() });
+});
+
+const isPathAllowedMiddleware = (req, res, next) => {
+    const targetPath = req.query.path || req.body.path || req.query.rootPath;
+    if (targetPath && !workspaceService.isPathAllowed(targetPath)) {
+        return res.status(403).json({ error: 'Access denied: path is outside workspace root.' });
+    }
+    next();
+};
 
 // ── PORTS ────────────────────────────────────────────────────────────────
 router.get('/ports', (req, res) => {
@@ -423,6 +445,141 @@ router.post('/git/commit', async (req, res) => {
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.toString() });
+    }
+});
+
+// ── GIT CLONE ────────────────────────────────────────────────────────────
+router.post('/clone', (req, res) => {
+    const { repoUrl } = req.body;
+    if (!repoUrl || typeof repoUrl !== 'string') {
+        return res.status(400).json({ error: 'repoUrl is required' });
+    }
+
+    // Sanitise: only allow http/https/git/ssh URLs
+    const allowedPattern = /^(https?:\/\/|git@|ssh:\/\/)/i;
+    if (!allowedPattern.test(repoUrl.trim())) {
+        return res.status(400).json({ error: 'Invalid repository URL. Must start with https://, http://, git@, or ssh://' });
+    }
+
+    const cloneBaseDir = path.join(os.homedir(), 'cloned-repos');
+    try {
+        fs.mkdirSync(cloneBaseDir, { recursive: true });
+    } catch (e) {
+        return res.status(500).json({ error: `Failed to create clone directory: ${e.message}` });
+    }
+
+    // Derive expected folder name from URL (strip .git suffix)
+    const repoName = repoUrl.trim().split('/').pop()?.replace(/\.git$/i, '') || 'repo';
+    const repoPath = path.join(cloneBaseDir, repoName);
+
+    // Increase timeout for large repos (5 minutes)
+    exec(`git clone "${repoUrl.trim()}"`, { cwd: cloneBaseDir, timeout: 300000, maxBuffer: 5 * 1024 * 1024 }, (err, _stdout, stderr) => {
+        if (err) {
+            return res.status(500).json({ error: stderr?.trim() || err.message || 'git clone failed' });
+        }
+        res.json({ path: repoPath, message: `Cloned successfully into ${repoPath}` });
+    });
+});
+
+// ── AI COMPLETION (OLLAMA PROXY) ─────────────────────────────────────────
+router.post('/ai/complete', isPathAllowedMiddleware, async (req, res) => {
+    const { prompt, suffix, model, path: filePath } = req.body;
+    
+    if (!prompt) {
+        return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // Use environment variable for Ollama or default to localhost
+    const OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const aiModel = model || 'qwen2.5-coder:1.5b';
+
+    try {
+        // Advanced models usually support FIM tags natively through specific APIs, 
+        // but for a generic proxy we will use the standard /api/generate endpoint.
+        // Some models (like codellama or qwen coder) automatically use suffix if we pass it,
+        // or we can construct a typical FIM prompt format if we know the exact model.
+        // We'll pass the prompt plainly for now, which gives excellent forward-completion.
+        // To use true FIM with Ollama, you pass `suffix` to `/api/generate` and Ollama handles the template.
+        
+        const ollamaPayload = {
+            model: aiModel,
+            prompt: prompt,
+            suffix: suffix || undefined,
+            stream: false,
+            options: {
+                // keep responses short and fast for inline completions
+                num_predict: 64,  
+                temperature: 0.2, 
+                top_p: 0.9,
+                stop: ["\n\n", "```", "<|endoftext|>"] 
+            }
+        };
+
+        const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ollamaPayload)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Ollama returned ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+        res.json({ completion: data.response });
+
+    } catch (err) {
+        console.error('[AI Completion Error]', err.message);
+        res.status(500).json({ error: 'Failed to generate completion' });
+    }
+});
+
+// ── AI CONTEXT BUILDER ──────────────────────────────────────────────────
+router.get('/ai/search-context', async (req, res) => {
+    const { query, limit } = req.query;
+    if (!query) return res.status(400).json({ error: 'query required' });
+    
+    const countLimit = parseInt(limit || '3');
+    try {
+        const results = await indexerService.getRelevantFiles(query, countLimit);
+        res.json({ results });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.post('/ai/reindex', async (_req, res) => {
+    indexerService.indexWorkspace(); // Runs in background
+    res.json({ message: 'Indexing started' });
+});
+
+// ── VECTOR SEARCH BRIDGE ───────────────────────────────────────────────
+router.get('/ai/vector-search', async (req, res) => {
+    const { query, limit } = req.query;
+    if (!query) return res.status(400).json({ error: 'query required' });
+
+    try {
+        const response = await fetch('http://localhost:5001/vector/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, limit: parseInt(limit || '5') })
+        });
+        const data = await response.json();
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: 'Vector search failed: ' + e.message });
+    }
+});
+
+// ── SCREEN ANALYZE BRIDGE ───────────────────────────────────────────────
+router.get('/ai/analyze-screen', async (req, res) => {
+    try {
+        const response = await fetch('http://localhost:5001/screen/analyze');
+        const data = await response.json();
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: 'Screen analysis failed: ' + e.message });
     }
 });
 

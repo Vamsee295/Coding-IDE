@@ -1,31 +1,50 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Wrench, Zap, Bot, User, FileCode, X } from "lucide-react";
+import { Send, Sparkles, Wrench, Zap, Bot, User, FileCode, X, Plus, Clock, RotateCcw, Monitor } from "lucide-react";
 import { ChatMessage } from "@/react-app/types/ide";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 import { AIAction, FileItem } from "@/react-app/types/ide";
 import { useExtensions } from "@/react-app/contexts/ExtensionContext";
-import { useSettings } from "@/react-app/contexts/SettingsContext";
 import FileMentions from "@/react-app/components/ide/FileMentions";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (message: string, taggedFiles?: FileItem[], attachedImages?: string[]) => void;
   onActionClick: (action: "explain" | "fix" | "optimize") => void;
-  onApplyAction: (action: AIAction) => void;
+  onApplyAction: (action: AIAction, messageId: string) => void;
   isLoading: boolean;
   selectedModel: string;
   files: FileItem[];
   width: number;
   isResizing: boolean;
+  onNewChat: () => void;
+  onViewHistory: () => void;
+  onRevert: (messageId: string) => void;
+  onAnalyzeScreen: () => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, onActionClick, onApplyAction, isLoading, selectedModel, files, width, isResizing }: ChatPanelProps) {
+export default function ChatPanel({
+  messages,
+  onSendMessage,
+  onActionClick,
+  onApplyAction,
+  isLoading,
+  selectedModel,
+  files,
+  width,
+  isResizing,
+  onNewChat,
+  onViewHistory,
+  onRevert,
+  onAnalyzeScreen
+}: ChatPanelProps) {
   const { isExtensionEnabled } = useExtensions();
-  const { settings } = useSettings();
   const aiEnabled = isExtensionEnabled("ai-enhancer");
-  const contextAware = settings.contextualAwareness;
 
   const [input, setInput] = useState("");
   const [mentionFilter, setMentionFilter] = useState("");
@@ -36,8 +55,19 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const isAtBottom = useRef(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Check if within 50px of bottom
+    isAtBottom.current = scrollHeight - scrollTop - clientHeight < 50;
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isAtBottom.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -156,7 +186,7 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
     <aside
       style={{ width }}
       className={cn(
-        "bg-ide-chat border-l border-ide-border flex flex-col shrink-0 relative",
+        "glass-panel-dark border-l border-ide-border flex flex-col shrink-0 relative z-10",
         !isResizing && "transition-all duration-300"
       )}
     >
@@ -171,22 +201,30 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
       )}
 
       {/* Header */}
-      <div className="h-10 px-4 flex items-center justify-between border-b border-ide-border">
+      <div className="h-10 px-4 flex items-center justify-between border-b border-ide-border bg-white/5 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <Bot className="w-4 h-4 text-indigo-400" />
-          <span className="text-sm font-medium text-ide-text-primary">AI Assistant</span>
+          <Bot className="w-4 h-4 text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-ide-text-primary">AI Assistant</span>
         </div>
-        <div className="flex items-center gap-2">
-          {contextAware && (
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-              <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
-              <span className="text-[10px] font-medium text-indigo-400">Context</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full ${aiEnabled ? "bg-green-500 animate-pulse" : "bg-gray-500"}`} />
-            <span className="text-[10px] text-ide-text-secondary">{aiEnabled ? "Live" : "Off"}</span>
-          </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onNewChat}
+            className="w-7 h-7 text-ide-text-secondary hover:text-white hover:bg-white/10 transition-all rounded-lg"
+            title="New Chat"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onViewHistory}
+            className="w-7 h-7 text-ide-text-secondary hover:text-white hover:bg-white/10 transition-all rounded-lg"
+            title="Chat History"
+          >
+            <Clock className="w-4 h-4" />
+          </Button>
         </div>
       </div>
 
@@ -224,7 +262,11 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-3 space-y-4"
+      >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-3">
@@ -247,40 +289,76 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
           >
             <div
               className={cn(
-                "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-lg transition-transform hover:scale-105",
                 message.role === "user"
-                  ? "bg-indigo-600"
-                  : "bg-gradient-to-br from-indigo-500/20 to-purple-500/20"
+                  ? "bg-indigo-600 ring-2 ring-indigo-500/20"
+                  : "bg-white/10 backdrop-blur-md border border-white/10"
               )}
             >
               {message.role === "user" ? (
                 <User className="w-4 h-4 text-white" />
               ) : (
-                <Bot className="w-4 h-4 text-indigo-400" />
+                <Bot className="w-4 h-4 text-indigo-400 drop-shadow-[0_0_5px_rgba(99,102,241,0.5)]" />
               )}
             </div>
             <div
               className={cn(
-                "flex-1 min-w-0",
+                "flex-1 min-w-0 max-w-[85%]",
                 message.role === "user" ? "text-right" : ""
               )}
             >
               <div
                 className={cn(
-                  "inline-block px-3 py-2 rounded-xl text-sm max-w-full shadow-sm",
+                  "inline-block px-4 py-3 rounded-2xl text-[13px] shadow-xl border transition-all duration-300",
                   message.role === "user"
-                    ? "bg-indigo-600 text-white rounded-tr-sm"
-                    : "bg-ide-sidebar text-ide-text-primary rounded-tl-sm"
+                    ? "bg-indigo-600 text-white border-indigo-500 rounded-tr-none"
+                    : "glass-panel-dark text-ide-text-primary border-white/5 rounded-tl-none hover:border-white/10"
                 )}
               >
-                <div className="whitespace-pre-wrap break-words leading-relaxed">
-                  {message.content.split(/(@[\w\.-]+)/g).map((part, i) =>
-                    part.startsWith("@") ? (
-                      <span key={i} className="text-indigo-300 font-semibold px-1 rounded bg-indigo-400/10">
-                        {part}
-                      </span>
-                    ) : part
-                  )}
+                <div className="markdown-body text-sm leading-relaxed prose prose-invert max-w-none">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code({ node, inline, className, children, ...props }: any) {
+                        const match = /language-(\w+)/.exec(className || "");
+                        return !inline && match ? (
+                          <div className="rounded-md overflow-x-auto my-2 border border-ide-border">
+                            <div className="flex items-center justify-between px-3 py-1 bg-ide-bg text-xs text-ide-text-secondary border-b border-ide-border">
+                              <span>{match[1]}</span>
+                            </div>
+                            <SyntaxHighlighter
+                              {...props}
+                              style={vscDarkPlus}
+                              language={match[1]}
+                              PreTag="div"
+                              customStyle={{ margin: 0, padding: "12px", background: "transparent", fontSize: "12px" }}
+                            >
+                              {String(children).replace(/\n$/, "")}
+                            </SyntaxHighlighter>
+                          </div>
+                        ) : (
+                          <code {...props} className="bg-black/30 px-1 py-0.5 rounded text-indigo-300 font-mono text-xs">
+                            {children}
+                          </code>
+                        );
+                      },
+                      p({ children }) {
+                        return <p className="mb-2 last:mb-0">{children}</p>;
+                      },
+                      a({ children, href }) {
+                        return <a href={href} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">{children}</a>;
+                      },
+                      ul({ children }) {
+                        return <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
+                      },
+                      ol({ children }) {
+                        return <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
+                      }
+                    }}
+                  >
+                    {/* Pre-process text to style @mentions */}
+                    {message.content.replace(/(@[\w\.-]+)/g, "`$1`")}
+                  </ReactMarkdown>
                 </div>
 
                 {/* AI Action Proposals */}
@@ -288,7 +366,11 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
                   <div className="mt-3 space-y-2 pt-2 border-t border-ide-border/30">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-ide-text-secondary mb-1">Proposed Actions</p>
                     {message.actions.map((action, idx) => (
-                      <div key={idx} className="bg-ide-bg/50 rounded-lg p-2 border border-ide-border flex flex-col gap-2">
+                      <div 
+                        key={idx} 
+                        className="bg-ide-bg/50 rounded-lg p-2 border border-ide-border flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-4 fill-mode-backwards"
+                        style={{ animationDuration: '400ms', animationDelay: `${idx * 150}ms` }}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             {action.type === "run_command" ? (
@@ -296,18 +378,34 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
                             ) : (
                               <FileCode className="w-3 h-3 text-blue-400" />
                             )}
-                            <span className="text-[11px] font-medium truncate">
-                              {action.type === "run_command" ? action.command : action.path}
-                            </span>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[11px] font-medium text-ide-text-primary truncate">
+                                     {action.type === 'run_command' ? action.command : (action.path ? action.path.split(/[\\/]/).pop() : 'Unnamed File')}
+                                </div>
+                                <div className="text-[10px] text-ide-text-secondary truncate mt-0.5 opacity-60">
+                                    {action.type === 'run_command' ? 'Terminal Command' : (action.path || 'No path specified')}
+                                </div>
+                            </div>
                           </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="h-6 px-2 text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white border-none"
-                            onClick={() => onApplyAction(action)}
-                          >
-                            Apply
-                          </Button>
+                          {!message.applied ? (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-6 px-2 text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white border-none"
+                              onClick={() => onApplyAction(action, message.id)}
+                            >
+                              Apply
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled
+                              className="h-6 px-2 text-[10px] text-green-400 bg-green-400/10 hover:bg-green-400/10 border-none opacity-100"
+                            >
+                              Applied
+                            </Button>
+                          )}
                         </div>
                         {action.type !== "run_command" && (
                           <div className="text-[9px] text-ide-text-secondary italic">
@@ -316,6 +414,19 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
                         )}
                       </div>
                     ))}
+                    {message.applied && (
+                      <div className="flex justify-end pt-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRevert(message.id)}
+                          className="h-6 px-2 text-[10px] gap-1 text-ide-text-secondary hover:text-white"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Revert Changes
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -345,12 +456,12 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-ide-border">
+      <div className="p-4 border-t border-ide-border bg-white/5 backdrop-blur-sm">
         {taggedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+          <div className="flex flex-wrap gap-1.5 mb-3 px-1">
             {taggedFiles.map(file => (
-              <div key={file.id} className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium animate-in fade-in zoom-in-95">
-                <FileCode className="w-2.5 h-2.5" />
+              <div key={file.id} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-semibold animate-in fade-in zoom-in-95 backdrop-blur-sm">
+                <FileCode className="w-3 h-3" />
                 <span className="truncate max-w-[150px]">{file.name}</span>
                 <button
                   type="button"
@@ -365,18 +476,18 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
         )}
 
         {attachedImages.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2 px-1">
+          <div className="flex flex-wrap gap-2 mb-3 px-1">
             {attachedImages.map((src, idx) => (
               <div key={idx} className="relative group animate-in fade-in zoom-in-95">
                 <img
                   src={src}
                   alt={`Attached ${idx + 1}`}
-                  className="h-16 w-auto object-cover rounded-md border border-ide-border shadow-sm"
+                  className="h-20 w-auto object-cover rounded-xl border border-white/10 shadow-lg transition-transform group-hover:scale-105"
                 />
                 <button
                   type="button"
                   onClick={() => removeImage(idx)}
-                  className="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity border border-gray-600 shadow-md"
+                  className="absolute -top-2 -right-2 bg-gray-900 text-white rounded-full p-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all border border-white/10 shadow-xl"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -385,18 +496,29 @@ export default function ChatPanel({ messages, onSendMessage, onActionClick, onAp
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="relative">
+        <form onSubmit={handleSubmit} className="relative group/form">
           <textarea
             ref={inputRef}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Ask about your code... Paste images/files... Use @ to tag files"
+            placeholder="Ask about your code... Use @ to tag files"
             rows={2}
-            className="w-full bg-ide-sidebar border border-ide-border rounded-xl px-4 py-3 pr-12 text-sm text-ide-text-primary placeholder:text-ide-text-secondary resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-inner"
+            className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-4 pr-16 text-sm text-ide-text-primary placeholder:text-ide-text-secondary/60 resize-none focus:outline-none focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-2xl custom-scrollbar"
           />
-          <div className="absolute right-2 bottom-2 flex items-center gap-1">
+          <div className="absolute right-3 bottom-3 flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={isLoading}
+              onClick={onAnalyzeScreen}
+              className="w-7 h-7 text-ide-text-secondary hover:text-indigo-400 hover:bg-indigo-400/10"
+              title="Analyze Screen"
+            >
+              <Monitor className="w-3.5 h-3.5" />
+            </Button>
             <Button
               type="submit"
               size="icon"

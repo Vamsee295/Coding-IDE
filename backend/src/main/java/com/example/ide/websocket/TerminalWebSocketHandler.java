@@ -52,7 +52,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     );
 
     private static final String IDE_HELP =
-        "\r\n\u001B[1;36m╔══ StackFlow IDE Commands ══╗\u001B[0m\r\n" +
+        "\r\n\u001B[1;36m╔══ OLLAMA AI Commands ══╗\u001B[0m\r\n" +
         "\u001B[1;36m║\u001B[0m  \u001B[1mide run\u001B[0m              — start dev server for current project\r\n" +
         "\u001B[1;36m║\u001B[0m  \u001B[1mide install node\u001B[0m     — install Node.js via winget\r\n" +
         "\u001B[1;36m║\u001B[0m  \u001B[1mide install python\u001B[0m   — install Python 3 via winget\r\n" +
@@ -191,7 +191,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             String lower = raw.toLowerCase().trim();
             for (String blocked : BLOCKED_COMMANDS) {
                 if (lower.startsWith(blocked) || lower.contains(blocked)) {
-                    sendText(session, "\r\n\u001B[1;31m[StackFlow]\u001B[0m Blocked: " + blocked + "\r\n");
+                    sendText(session, "\r\n\u001B[1;31m[OLLAMA AI]\u001B[0m Blocked: " + blocked + "\r\n");
                     return;
                 }
             }

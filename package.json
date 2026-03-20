@@ -1,7 +1,7 @@
 {
-  "name": "stackflow-ide-monorepo",
+  "name": "ollama-ai-monorepo",
   "version": "1.0.0",
-  "description": "Unified entry point for StackFlow IDE services",
+  "description": "Unified entry point for OLLAMA AI services",
   "scripts": {
     "install:all": "npm install --prefix frontend && npm install --prefix terminal-server",
     "dev:frontend": "npm run dev --prefix frontend",

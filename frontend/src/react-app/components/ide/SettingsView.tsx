@@ -110,7 +110,7 @@ export default function SettingsView() {
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['text-editor', 'features']));
     const [searchQuery, setSearchQuery] = useState('');
 
-    const t = useCallback((key: string) => t( key), [settings.language]);
+    const t = useCallback((key: string) => getTranslation(settings.language, key), [settings.language]);
 
     const [availableModels, setAvailableModels] = useState<{ label: string, value: string }[]>([
         { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' } // Immediate default, to be overwritten
@@ -530,6 +530,9 @@ export default function SettingsView() {
                                 <SettingSection icon={<Eye className="w-4 h-4" />} title={t( 'settings.section.appearance')}>
                                     <SettingRow type="select" label={t( 'settings.label.theme')} description={t( 'settings.desc.theme')} value={settings.theme} options={[
                                         { label: 'Deep Night', value: 'deep-night' },
+                                        { label: 'Tokyo Night (Premium)', value: 'tokyo-night' },
+                                        { label: 'GitHub Dark (Premium)', value: 'github-dark' },
+                                        { label: 'Nord (Premium)', value: 'nord' },
                                         { label: 'Snowy Studio (Light)', value: 'snowy-studio' },
                                         { label: 'Catppuccin Mocha', value: 'catppuccin-mocha' },
                                         { label: 'Dracula', value: 'dracula' },

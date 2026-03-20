@@ -213,7 +213,7 @@
   "menu.help.toggleDevTools": "切换开发人员工具",
   "menu.help.processExplorer": "打开进程浏览器",
   "menu.help.checkUpdates": "检查更新...",
-  "welcome.title": "StackFlow IDE",
+  "welcome.title": "OLLAMA AI",
   "welcome.subtitle": "AI 驱动的本地代码编辑器 — 为开发者打造",
   "welcome.recentWorkspaces": "最近的工作区",
   "welcome.proTip": "专业提示",
