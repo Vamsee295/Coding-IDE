@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const path = require('path');
 const ws = require('ws');
 const rpc = require('vscode-ws-jsonrpc');
 const server = require('vscode-ws-jsonrpc/server');
@@ -41,10 +42,10 @@ function setupLsp(serverHttp) {
         const lspProcess = spawn(
             'node',
             [
-                require.resolve('typescript-language-server/lib/cli.mjs'),
+                path.join(__dirname, '..', 'node_modules', 'typescript-language-server', 'lib', 'cli.mjs'),
                 '--stdio',
                 '--tsserver-path',
-                require.resolve('typescript/lib/tsserver.js')
+                path.join(__dirname, '..', 'node_modules', 'typescript', 'lib', 'tsserver.js')
             ],
             { env: process.env }
         );

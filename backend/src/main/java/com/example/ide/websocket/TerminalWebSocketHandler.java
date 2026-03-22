@@ -11,10 +11,8 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -136,7 +134,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // Stream shell output → WebSocket (final for lambda)
         // NOTE: PTY output already contains \r\n — do NOT replace \n with \r\n here
         final Process shellProcess = process;
-        Thread.ofVirtual().start(() -> {
+        new Thread(() -> {
             try {
                 byte[] buf = new byte[4096];
                 int len;
@@ -152,7 +150,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                     catch (Exception ignored) {}
                 }
             }
-        });
+        }).start();
     }
 
     // ─── Incoming message ────────────────────────────────────────────────────

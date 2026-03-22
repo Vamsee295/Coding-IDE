@@ -64,6 +64,7 @@ export default function HomePage() {
   const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
   const { dispatchCommand } = useIdeCommand();
   const fallbackFileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
@@ -477,11 +478,15 @@ export default function HomePage() {
         requestPayload.images = attachedImages.map(img => img.replace(/^data:image\/[a-z]+;base64,/, ''));
       }
 
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
       // Use the streaming endpoint for real-time token display
       const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
+        signal: signal,
       });
 
       if (!response.ok) {
@@ -548,6 +553,10 @@ export default function HomePage() {
         } : m)
       );
     } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('AI generation aborted');
+        return;
+      }
       console.error("AI Error:", error);
       const aiResponseError: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -558,8 +567,17 @@ export default function HomePage() {
       setMessages((prev) => [...prev, aiResponseError]);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [settings.ollamaEndpoint, selectedModel, tabs, settings.contextualAwareness]);
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+  }, []);
 
   const handleActionClick = useCallback((action: "explain" | "fix" | "optimize") => {
     const activeTab = tabs.find((t) => t.isActive);
@@ -1786,6 +1804,7 @@ export default function HomePage() {
                 onViewHistory={handleViewHistory}
                 onRevert={handleRevert}
                 onAnalyzeScreen={handleAnalyzeScreen}
+                onStopGeneration={handleStopGeneration}
               />
             </>
           )}

@@ -123,7 +123,7 @@ export const buildTreeFromFiles = async (files: FileList | null): Promise<FileIt
                     let content = "";
                     try {
                         content = await file.text();
-                    } catch (err) {
+                    } catch {
                         content = "// Binary file or unreadable format";
                     }
                     const newFile: FileItem = {

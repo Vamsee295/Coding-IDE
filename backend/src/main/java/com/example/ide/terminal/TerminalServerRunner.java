@@ -10,7 +10,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.Paths;
 
 /**
  * Automatically starts the Node.js terminal server when the Spring Boot backend starts.
@@ -49,7 +48,7 @@ public class TerminalServerRunner implements CommandLineRunner, DisposableBean {
             log.info("[TerminalServer] Terminal Server process started (PID: {})", terminalProcess.pid());
 
             // Print the first few lines of output to confirm it's running
-            Thread.ofVirtual().start(() -> {
+            new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(terminalProcess.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -63,7 +62,7 @@ public class TerminalServerRunner implements CommandLineRunner, DisposableBean {
                         log.warn("[TerminalServer] Error reading server output: {}", e.getMessage());
                     }
                 }
-            });
+            }).start();
 
         } catch (IOException e) {
             log.error("[TerminalServer] Failed to start Terminal Server: {}", e.getMessage());

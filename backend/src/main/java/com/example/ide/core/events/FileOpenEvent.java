@@ -1,6 +1,5 @@
 package com.example.ide.core.events;
 
-import java.util.Objects;
 
 /** Fired when a file is opened in the editor. */
 public final class FileOpenEvent implements IDEEvent {

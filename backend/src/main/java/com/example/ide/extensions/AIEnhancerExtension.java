@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -76,9 +75,4 @@ public class AIEnhancerExtension implements IDEExtension {
         log.info("[AIEnhancerExtension] Deactivated");
     }
 
-    private String selectionOrPayload(Map<String, Object> payload, String key) {
-        if (payload != null && payload.get(key) != null) return payload.get(key).toString();
-        SelectionChangeEvent sel = lastSelection.get();
-        return sel != null ? sel.getSelectedText() : "";
-    }
 }

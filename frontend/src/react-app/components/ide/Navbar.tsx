@@ -33,9 +33,10 @@ interface NavbarProps {
 
 const models = [
     { id: "qwen2.5-coder:7b", name: "Qwen 2.5 Coder 7B" },
+    { id: "deepseek-coder:6.7b", name: "DeepSeek Coder 6.7B" },
+    { id: "mistral:7b", name: "Mistral 7B" },
     { id: "qwen2.5-coder:14b", name: "Qwen 2.5 Coder 14B" },
     { id: "codellama:7b", name: "Code Llama 7B" },
-    { id: "deepseek-coder:6.7b", name: "DeepSeek Coder" },
 ];
 
 type MenuItemDef =

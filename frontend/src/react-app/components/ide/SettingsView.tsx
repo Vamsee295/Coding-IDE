@@ -113,7 +113,9 @@ export default function SettingsView() {
     const t = useCallback((key: string) => getTranslation(settings.language, key), [settings.language]);
 
     const [availableModels, setAvailableModels] = useState<{ label: string, value: string }[]>([
-        { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' } // Immediate default, to be overwritten
+        { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' },
+        { label: 'DeepSeek Coder 6.7B', value: 'deepseek-coder:6.7b' },
+        { label: 'Mistral 7B', value: 'mistral:7b' }
     ]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [modelFetchError, setModelFetchError] = useState<string | null>(null);

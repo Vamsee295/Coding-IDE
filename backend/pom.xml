@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>demo</artifactId>
+	<artifactId>stackflow-ide-backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>OLLAMA AI</name>
-	<description>OLLAMA AI Backend Project</description>
+	<name>stackflow-ide-backend</name>
+	<description>StackFlow IDE Backend Project</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -27,7 +27,9 @@
 		<url/>
 	</scm>
 	<properties>
-		<java.version>21</java.version>
+		<java.version>17</java.version>
+		<maven.compiler.source>17</maven.compiler.source>
+		<maven.compiler.target>17</maven.compiler.target>
 	</properties>
 	<dependencies>
 		<dependency>

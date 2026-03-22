@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Sparkles, Wrench, Zap, Bot, User, FileCode, X, Plus, Clock, RotateCcw, Monitor } from "lucide-react";
+import { Send, Sparkles, Wrench, Zap, Bot, User, FileCode, X, Plus, Clock, RotateCcw, Monitor, Image, Square } from "lucide-react";
 import { ChatMessage } from "@/react-app/types/ide";
 import { Button } from "@/react-app/components/ui/button";
 import { cn } from "@/react-app/lib/utils";
@@ -26,6 +26,7 @@ interface ChatPanelProps {
   onViewHistory: () => void;
   onRevert: (messageId: string) => void;
   onAnalyzeScreen: () => void;
+  onStopGeneration: () => void;
 }
 
 export default function ChatPanel({
@@ -41,7 +42,8 @@ export default function ChatPanel({
   onNewChat,
   onViewHistory,
   onRevert,
-  onAnalyzeScreen
+  onAnalyzeScreen,
+  onStopGeneration
 }: ChatPanelProps) {
   const { isExtensionEnabled } = useExtensions();
   const aiEnabled = isExtensionEnabled("ai-enhancer");
@@ -54,6 +56,7 @@ export default function ChatPanel({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAtBottom = useRef(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -135,14 +138,16 @@ export default function ChatPanel({
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    // Access items synchronously to avoid them being cleared in asynchronous contexts
     const items = Array.from(e.clipboardData.items);
+    const files = Array.from(e.clipboardData.files || []);
+    let handled = false;
 
+    // Process items (for data snippets, browser images)
     for (const item of items) {
       if (item.type.indexOf("image") !== -1) {
         const file = item.getAsFile();
         if (!file) continue;
-
+        handled = true;
         const reader = new FileReader();
         reader.onload = (event) => {
           if (event.target?.result && typeof event.target.result === 'string') {
@@ -151,10 +156,36 @@ export default function ChatPanel({
         };
         reader.readAsDataURL(file);
       } else if (item.kind === "file") {
-        const file = item.getAsFile();
-        if (!file) continue;
+         // This might be a file copied from file explorer
+         const file = item.getAsFile();
+         if (file && file.type.startsWith('image/')) {
+            handled = true;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              if (event.target?.result && typeof event.target.result === 'string') {
+                setAttachedImages(prev => [...prev, event.target!.result as string]);
+              }
+            };
+            reader.readAsDataURL(file);
+         }
+      }
+    }
 
-        try {
+    // Process high-level files if items didn't catch them
+    if (files.length > 0) {
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          handled = true;
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result && typeof event.target.result === 'string') {
+              setAttachedImages(prev => [...prev, event.target!.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
+        } else {
+          // Non-image files: tag them for context
+          handled = true;
           const text = await file.text();
           const fakeFileItem: FileItem = {
             id: `pasted-${Date.now()}-${file.name}`,
@@ -163,10 +194,13 @@ export default function ChatPanel({
             content: text,
           };
           setTaggedFiles(prev => [...prev, fakeFileItem]);
-        } catch (error) {
-          console.error("Failed to read pasted file:", error);
         }
       }
+    }
+
+    // If we handled any files/images, don't let the browser paste the binary name/junk into the text
+    if (handled) {
+      e.preventDefault();
     }
   };
 
@@ -176,6 +210,27 @@ export default function ChatPanel({
 
   const removeFile = (id: string) => {
     setTaggedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result && typeof event.target.result === 'string') {
+            setAttachedImages(prev => [...prev, event.target!.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+    // Reset input so the same file can be selected again
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click();
   };
 
   const formatTime = (date: Date) => {
@@ -513,20 +568,51 @@ export default function ChatPanel({
               size="icon"
               variant="ghost"
               disabled={isLoading}
+              onClick={triggerFileUpload}
+              className="w-7 h-7 text-ide-text-secondary hover:text-indigo-400 hover:bg-indigo-400/10"
+              title="Upload Image"
+            >
+              <Image className="w-3.5 h-3.5" />
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              multiple
+              className="hidden"
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={isLoading}
               onClick={onAnalyzeScreen}
               className="w-7 h-7 text-ide-text-secondary hover:text-indigo-400 hover:bg-indigo-400/10"
               title="Analyze Screen"
             >
               <Monitor className="w-3.5 h-3.5" />
             </Button>
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!input.trim() || isLoading}
-              className="w-7 h-7 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-            >
-              <Send className="w-3.5 h-3.5 text-white" />
-            </Button>
+            {isLoading ? (
+              <Button
+                type="button"
+                size="icon"
+                onClick={onStopGeneration}
+                className="w-7 h-7 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 animate-pulse"
+                title="Stop Generating"
+              >
+                <Square className="w-3.5 h-3.5 text-red-400 fill-red-400" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!input.trim() || isLoading}
+                className="w-7 h-7 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <Send className="w-3.5 h-3.5 text-white" />
+              </Button>
+            )}
           </div>
         </form>
 

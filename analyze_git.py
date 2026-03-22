@@ -10,7 +10,7 @@ def analyze():
     tracked_files = run_cmd("git ls-files")
     
     ext_counter = Counter()
-    suspicious = []
+    suspicious: list[str] = []
     
     for f in tracked_files:
         ext = os.path.splitext(f)[1].lower() or "no-extension"
@@ -25,7 +25,9 @@ def analyze():
     print("\nForbidden Directories:")
     if suspicious:
          print(f" FOUND {len(suspicious)} files in forbidden dirs!")
-         for f in suspicious[:5]:
+         limit = min(5, len(suspicious))
+         for i in range(limit):
+              f = suspicious[i]
               print(f"  - {f}")
     else:
          print(" None found.")
