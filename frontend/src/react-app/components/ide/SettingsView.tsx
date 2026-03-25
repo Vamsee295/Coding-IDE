@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    X, Search, ChevronDown, ChevronRight,
+    ArrowLeft, Search, ChevronDown, ChevronRight,
     FileCode, Palette, AppWindow, Wrench, Settings2 as AppIcon,
     Shield, Puzzle, Type, MousePointer2, Map, Lightbulb,
     FoldVertical, Braces, IndentIncrease, WrapText, Pointer,
@@ -19,6 +19,7 @@ import SettingSection from '@/react-app/components/settings/SettingSection';
 import ExtensionsPanel from '@/react-app/components/settings/ExtensionsPanel';
 import { getTranslation } from '@/react-app/lib/i18n';
 import { CONFIG } from '@/react-app/lib/config';
+import { useChatStore } from '@/react-app/store/useChatStore';
 
 // ─── Sidebar Structure ──────────────────────────────────────────────────────
 
@@ -107,16 +108,12 @@ const CATEGORIES: Category[] = [
 
 export default function SettingsView() {
     const { settings, updateSettings, resetSettings, isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab } = useSettings();
+    const { availableModels, setAvailableModels } = useChatStore();
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['text-editor', 'features']));
     const [searchQuery, setSearchQuery] = useState('');
 
-    const t = useCallback((key: string) => getTranslation(settings.language, key), [settings.language]);
+    const t = (key: string) => getTranslation(settings.language, key);
 
-    const [availableModels, setAvailableModels] = useState<{ label: string, value: string }[]>([
-        { label: 'Qwen 2.5 Coder 7B', value: 'qwen2.5-coder:7b' },
-        { label: 'DeepSeek Coder 6.7B', value: 'deepseek-coder:6.7b' },
-        { label: 'Mistral 7B', value: 'mistral:7b' }
-    ]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [modelFetchError, setModelFetchError] = useState<string | null>(null);
     const [pullModelName, setPullModelName] = useState('');
@@ -236,23 +233,22 @@ export default function SettingsView() {
     };
 
     return (
-        <div className="absolute inset-0 z-50 flex bg-ide-bg/80 backdrop-blur-sm">
-            <div className="w-full max-w-6xl mx-auto my-6 flex rounded-xl border border-ide-border bg-ide-sidebar shadow-2xl overflow-hidden">
+        <div className="absolute inset-0 z-50 flex bg-ide-bg">
+            <div className="w-full flex rounded-none border-0 border-t border-ide-border bg-ide-sidebar overflow-hidden" style={{ height: '100%' }}>
 
                 {/* ── SIDEBAR ── */}
                 <div className="w-64 flex-shrink-0 border-r border-ide-border bg-[rgba(15,17,26,0.6)] flex flex-col">
                     {/* Header + search */}
                     <div className="p-4 pb-3 flex-shrink-0">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xs font-semibold text-ide-text-secondary uppercase tracking-widest">{t('settings.title')}</h2>
-                            <Button
-                                variant="ghost" size="icon"
-                                onClick={() => setIsSettingsOpen(false)}
-                                className="h-6 w-6 text-ide-text-secondary hover:text-white"
-                            >
-                                <X className="w-4 h-4" />
-                            </Button>
-                        </div>
+                        {/* Back button */}
+                        <button
+                            onClick={() => setIsSettingsOpen(false)}
+                            className="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded-lg text-xs font-medium text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/60 border border-ide-border/40 transition-all group"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                            <span>Back to Editor</span>
+                        </button>
+                        <h2 className="text-xs font-semibold text-ide-text-secondary uppercase tracking-widest mb-3">{t('settings.title')}</h2>
                         <div className="relative">
                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ide-text-secondary" />
                             <Input
@@ -357,6 +353,11 @@ export default function SettingsView() {
                     </div>
 
                     {/* Settings Content */}
+                    {settingsTab === 'extensions' ? (
+                        <div className="flex-1 overflow-hidden">
+                            <ExtensionsPanel />
+                        </div>
+                    ) : (
                     <div className="flex-1 overflow-y-auto px-8 py-6">
                         <div className="max-w-3xl space-y-2">
 
@@ -873,6 +874,7 @@ export default function SettingsView() {
 
                         </div>
                     </div>
+                    )}
                 </div>
             </div>
         </div>

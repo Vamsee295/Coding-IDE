@@ -4,143 +4,84 @@
 
 @layer base {
   :root {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 90%;
-    --card: 0 0% 0%;
-    --card-foreground: 0 0% 90%;
-    --popover: 0 0% 0%;
-    --popover-foreground: 0 0% 90%;
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 8%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 239 84% 67%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 10%;
-    --input: 0 0% 10%;
-    --ring: 239 84% 67%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
     --radius: 0.5rem;
-    
-    /* IDE specific colors */
-    --ide-bg: 0 0% 0%;
-    --ide-sidebar: 0 0% 0%;
-    --ide-editor: 0 0% 0%;
-    --ide-chat: 0 0% 0%;
-    --ide-border: 0 0% 10%;
-    --ide-accent: 239 84% 67%;
-    --ide-text-primary: 0 0% 90%;
-    --ide-text-secondary: 0 0% 64%;
-    --ide-hover: 0 0% 10%;
-    --ide-active: 239 84% 67% / 20%;
-    
-    --sidebar: 0 0% 0%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 239 84% 67%;
-    --sidebar-primary-foreground: 0 0% 100%;
+
+    /* IDE specific colors - Nano Banana IDE (Minimal Ultra-Dark) */
+    --ide-bg: 0 0% 4.3%; /* #0b0b0b - ultra dark base */
+    --ide-sidebar: 0 0% 4.3%;
+    --ide-editor: 0 0% 4.3%;
+    --ide-chat: 0 0% 4.3%;
+    --ide-border: 0 0% 9%; /* #171717 - very subtle border */
+    --ide-accent: 0 0% 90%; /* nearly white for accents */
+    --ide-text-primary: 0 0% 85%; /* #d9d9d9 - off-white */
+    --ide-text-secondary: 0 0% 45%; /* #737373 - dimmer gray for less contrast */
+    --ide-hover: 0 0% 8%; /* #141414 - barely noticeable hover */
+    --ide-active: 0 0% 12%; /* #1f1f1f - subtle active state */
+
+    --sidebar: 0 0% 4.3%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 0 0% 85%;
+    --sidebar-primary-foreground: 0 0% 4.3%;
     --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 0 0% 10%;
-    --sidebar-ring: 239 84% 67%;
+    --sidebar-accent-foreground: 0 0% 85%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 0 0% 50%;
   }
 
   .dark {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 90%;
-    --card: 0 0% 0%;
-    --card-foreground: 0 0% 90%;
-    --popover: 0 0% 0%;
-    --popover-foreground: 0 0% 90%;
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 8%;
-    --secondary-foreground: 0 0% 90%;
+    --background: 0 0% 4.3%;
+    /* #0b0b0b */
+    --foreground: 0 0% 85%;
+    --card: 0 0% 4.3%;
+    --card-foreground: 0 0% 85%;
+    --popover: 0 0% 4.3%;
+    --popover-foreground: 0 0% 85%;
+    --primary: 0 0% 85%;
+    --primary-foreground: 0 0% 4.3%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 85%;
     --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 239 84% 67%;
-    --accent-foreground: 0 0% 100%;
-    --border: 0 0% 10%;
-    --input: 0 0% 10%;
-    --ring: 239 84% 67%;
-    
-    --ide-bg: 0 0% 0%;
-    --ide-sidebar: 0 0% 0%;
-    --ide-editor: 0 0% 0%;
-    --ide-chat: 0 0% 0%;
-    --ide-border: 0 0% 10%;
-    --ide-accent: 239 84% 67%;
-    --ide-text-primary: 0 0% 90%;
-    --ide-text-secondary: 0 0% 64%;
-    --ide-hover: 0 0% 10%;
-  }
+    --muted-foreground: 0 0% 50%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 85%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 50%;
 
-  /* 🌸 Tokyo Night */
-  .theme-tokyo-night {
-    --background: 228 13% 13%;
-    --foreground: 226 70% 88%;
-    --primary: 221 89% 72%;
-    --secondary: 240 15% 10%;
-    --muted: 228 24% 21%;
-    --muted-foreground: 228 16% 56%;
-    --border: 228 24% 21%;
-    --ring: 221 89% 72%;
-    
-    --ide-bg: 228 13% 13%; /* #1a1b26 */
-    --ide-sidebar: 240 15% 10%; /* #16161e */
-    --ide-editor: 228 13% 13%;
-    --ide-chat: 240 15% 10%;
-    --ide-border: 228 24% 21%; /* #292e42 */
-    --ide-accent: 221 89% 72%; /* #7aa2f7 */
-    --ide-text-primary: 226 70% 88%; /* #c0caf5 */
-    --ide-text-secondary: 228 16% 56%; /* #565f89 */
-    --ide-hover: 228 24% 21%;
-  }
-
-  /* 😸 GitHub Dark */
-  .theme-github-dark {
-    --background: 216 28% 7%;
-    --foreground: 212 25% 85%;
-    --primary: 212 100% 67%;
-    --secondary: 217 80% 2%;
-    --muted: 212 12% 21%;
-    --muted-foreground: 215 14% 56%;
-    --border: 212 12% 21%;
-    --ring: 212 100% 67%;
-    
-    --ide-bg: 216 28% 7%; /* #0d1117 */
-    --ide-sidebar: 217 80% 2%; /* #010409 */
-    --ide-editor: 216 28% 7%;
-    --ide-chat: 217 80% 2%;
-    --ide-border: 212 12% 21%; /* #30363d */
-    --ide-accent: 212 100% 67%; /* #58a6ff */
-    --ide-text-primary: 212 25% 85%; /* #c9d1d9 */
-    --ide-text-secondary: 215 14% 56%; /* #8b949e */
-    --ide-hover: 212 12% 21%;
-  }
-
-  /* ❄️ Nord */
-  .theme-nord {
-    --background: 220 16% 22%;
-    --foreground: 218 27% 92%;
-    --primary: 193 43% 67%;
-    --secondary: 220 17% 17%;
-    --muted: 220 16% 28%;
-    --muted-foreground: 219 14% 61%;
-    --border: 220 16% 28%;
-    --ring: 193 43% 67%;
-    
-    --ide-bg: 220 16% 22%; /* #2e3440 */
-    --ide-sidebar: 220 17% 17%; /* #242933 */
-    --ide-editor: 220 16% 22%;
-    --ide-chat: 220 17% 17%;
-    --ide-border: 220 16% 28%; /* #3b4252 */
-    --ide-accent: 193 43% 67%; /* #88c0d0 */
-    --ide-text-primary: 218 27% 92%; /* #eceff4 */
-    --ide-text-secondary: 219 14% 61%; /* #616e88 */
-    --ide-hover: 220 16% 28%;
+    /* IDE specific — StackFlow premium dark */
+    --ide-bg: 225 18% 6%; /* #0c0f14 */
+    --ide-sidebar: 225 22% 10%; /* #141821 */
+    --ide-panel: 222 24% 12%; /* #161c28 */
+    --ide-editor: 225 20% 8%; /* #14171f */
+    --ide-chat: 222 24% 12%;
+    --ide-border: 228 18% 18%; /* #252a38 */
+    --ide-accent: 258 90% 66%; /* violet */
+    --ide-accent-blue: 217 92% 58%; /* #3b82f6 */
+    --ide-statusbar: 217 85% 48%; /* electric blue strip */
+    --ide-input: 225 22% 11%;
+    --ide-text-primary: 230 12% 88%;
+    --ide-text-secondary: 225 10% 55%;
+    --ide-hover: 223 18% 16%;
+    --ide-active: 221 22% 18%;
   }
 }
 
@@ -149,13 +90,17 @@
     @apply border-border;
   }
 
-  html, body, #root {
+  html,
+  body,
+  #root {
     @apply h-full overflow-hidden;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "Inter Variable", "Inter", system-ui, sans-serif;
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background-image: radial-gradient(ellipse 120% 80% at 50% -20%, hsl(258 40% 14% / 0.35), transparent 55%),
+      linear-gradient(180deg, hsl(225 18% 6%) 0%, hsl(225 20% 5%) 100%);
   }
 
   button:not([disabled]),
@@ -163,7 +108,7 @@
     cursor: pointer;
   }
 
-  /* Custom scrollbar for IDE */
+  /* Custom scrollbar for IDE - Minimal */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -174,46 +119,103 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--ide-border) / 50%);
-    border-radius: 10px;
-    border: 1px solid transparent;
-    background-clip: content-box;
+    background: hsl(228 15% 22%);
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--ide-accent) / 30%);
-    border: 1px solid transparent;
-    background-clip: content-box;
+    background: hsl(228 15% 32%);
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: hsl(228 15% 22%);
   }
 }
 
 @layer utilities {
+
+  /* Replace glass-panels with premium elevated panels */
   .glass-panel {
-    @apply bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)];
+    background-color: hsl(var(--ide-panel));
+    border: 1px solid hsl(var(--ide-border));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   }
-  
+
   .glass-panel-dark {
-    @apply bg-black/20 backdrop-blur-lg border border-white/5 shadow-2xl;
+    background-color: hsl(var(--ide-sidebar));
+    border-left: 1px solid hsl(var(--ide-border));
+    /* Often used for sidebar/chat */
   }
 
-  .text-glow-indigo {
-    text-shadow: 0 0 12px hsl(var(--primary) / 0.5);
+  .premium-card {
+    background-color: hsl(var(--ide-panel));
+    border: 1px solid hsl(var(--ide-border));
+    /* Remove transition for snappier cursor-like feel */
   }
 
-  .bg-radial-gradient {
-    background: radial-gradient(circle at center, hsl(var(--background) / 0.8) 0%, hsl(var(--background)) 100%);
+  /* Remove bright glows, replace with subtle text color changes */
+  .text-glow-primary {
+    color: hsl(var(--ide-text-primary));
+    text-shadow: 0 0 10px rgba(213, 214, 219, 0.1);
   }
 
-  .animate-glow {
-    animation: glow 3s ease-in-out infinite alternate;
+  /* Remove mesh gradients */
+  .bg-mesh-gradient {
+    background: none;
+    background-color: hsl(var(--ide-bg));
   }
 
-  @keyframes glow {
-    from {
-      filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.3));
-    }
-    to {
-      filter: drop-shadow(0 0 15px hsl(var(--primary) / 0.7));
-    }
+  .bg-mesh {
+    background-color: #0b0e14;
+    background-image: 
+      radial-gradient(at 40% 20%, hsla(258, 40%, 14%, 0.15) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, hsla(217, 85%, 48%, 0.1) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, hsla(258, 40%, 14%, 0.15) 0px, transparent 50%);
+  }
+
+  /* Keep panel transition but make it snappier */
+  .panel-transition {
+    transition-property: all;
+    transition-duration: 200ms;
+    transition-timing-function: ease-in-out;
+  }
+
+  /* Premium Glow Effects */
+  .premium-glow {
+    box-shadow: 0 0 15px -2px rgba(124, 92, 255, 0.4), 0 0 5px rgba(124, 92, 255, 0.2);
+  }
+
+  .text-glow-accent {
+    color: hsl(var(--ide-accent));
+    text-shadow: 0 0 10px rgba(124, 92, 255, 0.5);
+  }
+
+  .premium-glass-dropdown {
+    background-color: hsl(var(--ide-panel) / 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid hsl(var(--ide-border));
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .ide-app-shell {
+    background: linear-gradient(180deg, hsl(225 18% 6%) 0%, hsl(225 20% 5%) 100%);
+    box-shadow: inset 0 1px 0 hsl(228 18% 22% / 0.4);
+  }
+
+  .ide-activity-bar {
+    background: linear-gradient(180deg, hsl(225 22% 8%) 0%, hsl(225 20% 6%) 100%);
+    box-shadow: inset -1px 0 0 hsl(var(--ide-border));
+  }
+
+  .ide-editor-surface {
+    background: linear-gradient(165deg, hsl(225 20% 7%) 0%, hsl(225 18% 6%) 45%, hsl(225 22% 5%) 100%);
+  }
+
+  /* AI Inline Diff Styles */
+  .ai-diff-added {
+    background-color: rgba(139, 92, 246, 0.18) !important;
+  }
+  .ai-diff-added-margin {
+    border-left: 3px solid #8b5cf6 !important;
   }
 }

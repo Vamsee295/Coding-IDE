@@ -7,7 +7,10 @@
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:terminal": "npm run start --prefix terminal-server",
     "dev:backend": "cd backend && ./mvnw spring-boot:run",
+    "dev:tauri": "npm run tauri dev --prefix frontend",
+    "dev": "concurrently \"npm run dev:terminal\" \"npm run dev:backend\" \"npm run dev:tauri\"",
     "build:frontend": "npm run build --prefix frontend",
+    "build:tauri": "npm run tauri build --prefix frontend",
     "build:backend": "cd backend && ./mvnw package -DskipTests",
     "prod:start:terminal": "npm run start --prefix terminal-server",
     "prod:start:backend": "java -jar backend/target/*.jar"

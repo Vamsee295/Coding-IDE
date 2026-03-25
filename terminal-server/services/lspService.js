@@ -43,9 +43,7 @@ function setupLsp(serverHttp) {
             'node',
             [
                 path.join(__dirname, '..', 'node_modules', 'typescript-language-server', 'lib', 'cli.mjs'),
-                '--stdio',
-                '--tsserver-path',
-                path.join(__dirname, '..', 'node_modules', 'typescript', 'lib', 'tsserver.js')
+                '--stdio'
             ],
             { env: process.env }
         );
@@ -68,8 +66,14 @@ function setupLsp(serverHttp) {
             return message;
         });
 
+        lspProcess.stderr.on('data', data => {
+            const msg = data.toString();
+            console.error(`[LSP Error] ${msg}`);
+            outputBuffer.pushLog('LSP', 'error', msg);
+        });
+
         lspProcess.on('exit', code => {
-            outputBuffer.pushLog('LSP', 'info', `LSP Process excited with code ${code}`);
+            outputBuffer.pushLog('LSP', 'info', `LSP Process exited with code ${code}`);
         });
     }
 

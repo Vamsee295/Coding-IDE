@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Search, Loader2, FileCode, ChevronDown, ChevronRight, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Search, Loader2, FileCode, ChevronDown, ChevronRight, X, Code, Focus } from "lucide-react";
 import { fsService } from "@/services/fsService";
 import { FileItem } from "@/react-app/types/ide";
+import { cn } from "@/react-app/lib/utils";
 
 interface SearchViewProps {
     rootPath?: string;
@@ -25,6 +27,63 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<GroupedResult[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [regexMode, setRegexMode] = useState(false);
+    const [matchCase, setMatchCase] = useState(false);
+    const [wholeWord, setWholeWord] = useState(false);
+
+    const escapeRegExp = (s: string) =>
+        s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const buildSearchQuery = useCallback((rawQuery: string) => {
+        const q = rawQuery.trim();
+        if (!wholeWord) return q;
+        // Whole-word search is implemented as regex boundaries.
+        // Backend regex search is always case-insensitive.
+        return `\\b${escapeRegExp(q)}\\b`;
+    }, [wholeWord]);
+
+    const getHighlightRegex = () => {
+        const q = query.trim();
+        if (!q) return null;
+        try {
+            if (regexMode || wholeWord) {
+                return new RegExp(buildSearchQuery(q), "gi");
+            }
+            return new RegExp(escapeRegExp(q), "gi");
+        } catch {
+            return null;
+        }
+    };
+
+    const renderHighlighted = (content: string) => {
+        const rx = getHighlightRegex();
+        if (!rx) return content;
+
+        const parts: ReactNode[] = [];
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        while ((match = rx.exec(content)) !== null) {
+            const start = match.index;
+            const end = start + match[0].length;
+            if (start > lastIndex) parts.push(content.slice(lastIndex, start));
+            parts.push(
+                <span
+                    key={`${start}-${end}`}
+                    className="bg-indigo-500/40 text-indigo-100 rounded-sm px-0.5 font-bold shadow-[0_0_6px_rgba(99,102,241,0.25)]"
+                >
+                    {content.slice(start, end)}
+                </span>
+            );
+            lastIndex = end;
+            // Prevent infinite loops for zero-length matches.
+            if (rx.lastIndex === match.index) rx.lastIndex++;
+            if (parts.length > 250) break;
+        }
+
+        if (lastIndex < content.length) parts.push(content.slice(lastIndex));
+        return <>{parts}</>;
+    };
 
     const performSearch = useCallback(async (q: string) => {
         if (!rootPath || !q || q.length < 2) {
@@ -34,7 +93,9 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
 
         setIsSearching(true);
         try {
-            const rawResults = await fsService.search(q, rootPath);
+            const effectiveQuery = buildSearchQuery(q);
+            const effectiveRegex = regexMode || wholeWord;
+            const rawResults = await fsService.search(effectiveQuery, rootPath, effectiveRegex);
             // Group by path
             const groupedMap = new Map<string, GroupedResult>();
             rawResults.forEach(res => {
@@ -54,12 +115,12 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
         } finally {
             setIsSearching(false);
         }
-    }, [rootPath]);
+    }, [rootPath, regexMode, wholeWord, buildSearchQuery]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
             performSearch(query);
-        }, 300);
+        }, 250);
         return () => clearTimeout(timer);
     }, [query, performSearch]);
 
@@ -93,18 +154,79 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search"
-                        className="w-full bg-ide-input border border-ide-border rounded px-8 py-1.5 text-xs text-ide-text-primary focus:outline-none focus:border-indigo-500 transition-colors"
+                        className="w-full bg-ide-sidebar/40 border border-ide-border rounded px-8 py-1.5 text-xs text-ide-text-primary focus:outline-none focus:border-indigo-500/70 transition-colors"
                         autoFocus
                     />
                     {query && (
                         <button
                             onClick={() => setQuery("")}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ide-text-secondary hover:text-ide-text-primary"
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ide-text-secondary hover:text-ide-text-primary transition-colors"
                         >
                             <X className="w-3.5 h-3.5" />
                         </button>
                     )}
                 </div>
+                <div className="mt-3 flex flex-wrap gap-2 items-center px-1">
+                    <label
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1 rounded-md border text-[10px] select-none transition-colors",
+                            "bg-ide-bg/20 border-ide-border/60 text-ide-text-secondary"
+                        )}
+                        title="Backend search is always case-insensitive; this toggle is best-effort for UX."
+                    >
+                        <input
+                            type="checkbox"
+                            checked={matchCase}
+                            onChange={(e) => setMatchCase(e.target.checked)}
+                            className="accent-indigo-500"
+                        />
+                        <span className="flex items-center gap-1">
+                            <Focus className="w-3 h-3" /> Match case
+                        </span>
+                    </label>
+
+                    <label
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1 rounded-md border text-[10px] select-none transition-colors",
+                            regexMode
+                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-200"
+                                : "bg-ide-bg/20 border-ide-border/60 text-ide-text-secondary"
+                        )}
+                        title="Enable regex search."
+                    >
+                        <input
+                            type="checkbox"
+                            checked={regexMode}
+                            onChange={(e) => setRegexMode(e.target.checked)}
+                            className="accent-indigo-500"
+                        />
+                        <span className="flex items-center gap-1">
+                            <Code className="w-3 h-3" /> Regex
+                        </span>
+                    </label>
+
+                    <label
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1 rounded-md border text-[10px] select-none transition-colors",
+                            wholeWord
+                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-200"
+                                : "bg-ide-bg/20 border-ide-border/60 text-ide-text-secondary"
+                        )}
+                        title="Whole word search (implemented as regex boundaries)."
+                    >
+                        <input
+                            type="checkbox"
+                            checked={wholeWord}
+                            onChange={(e) => setWholeWord(e.target.checked)}
+                            className="accent-indigo-500"
+                        />
+                        <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-400/70" />
+                            Whole word
+                        </span>
+                    </label>
+                </div>
+
                 <div className="mt-2 text-[10px] text-ide-text-secondary flex justify-between items-center px-1">
                     <span>
                         {isSearching ? (
@@ -112,10 +234,17 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
                                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                 Searching...
                             </span>
+                        ) : query.length >= 2 ? (
+                            `${results.length} files found`
                         ) : (
-                            query.length >= 2 ? `${results.length} files found` : "Enter at least 2 chars"
+                            "Enter at least 2 chars"
                         )}
                     </span>
+                    {(regexMode || wholeWord) && (
+                        <span className="text-[10px] text-ide-text-secondary/70">
+                            Regex is case-insensitive in backend
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -159,11 +288,7 @@ export default function SearchView({ rootPath, onFileSelect }: SearchViewProps) 
                                                 <span className="text-[9px] text-indigo-400/80 font-mono font-bold tracking-tight uppercase">Line {match.line}</span>
                                             </div>
                                             <div className="truncate font-mono text-[11px] opacity-90 leading-relaxed">
-                                                {match.content.split(new RegExp(`(${query})`, 'gi')).map((part, i) =>
-                                                    part.toLowerCase() === query.toLowerCase()
-                                                        ? <span key={i} className="bg-indigo-500/40 text-indigo-100 rounded-sm px-0.5 font-bold shadow-[0_0_5px_rgba(99,102,241,0.3)]">{part}</span>
-                                                        : part
-                                                )}
+                                                {renderHighlighted(match.content)}
                                             </div>
                                         </button>
                                     ))}

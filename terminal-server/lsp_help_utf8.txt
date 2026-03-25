@@ -1,0 +1,8 @@
+﻿Usage: typescript-language-server [options]
+
+Options:
+  -V, --version           output the version number
+  --stdio                 use stdio
+  --log-level <logLevel>  A number indicating the log level (4 = log, 3 = info,
+                          2 = warn, 1 = error). Defaults to `2`. (default: 2)
+  -h, --help              display help for command

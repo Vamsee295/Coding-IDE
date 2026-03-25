@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
+import { useChatStore } from "@/react-app/store/useChatStore";
 import Navbar from "@/react-app/components/ide/Navbar";
 import Sidebar from "@/react-app/components/ide/Sidebar";
 import Editor from "@/react-app/components/ide/Editor";
@@ -9,7 +10,8 @@ import FileOperationDialog from "@/react-app/components/ide/FileOperationDialog"
 import SettingsView from "@/react-app/components/ide/SettingsView";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import { useIdeCommandListener, useIdeCommand } from "@/react-app/contexts/IdeCommandContext";
-import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab, Snapshot, ChatSession } from "@/react-app/types/ide";
+import { useIdeStore } from "@/react-app/store/useIdeStore";
+import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab, Snapshot, ChatSession, PendingEditProposal } from "@/react-app/types/ide";
 import ChatHistoryModal from "@/react-app/components/ide/ChatHistoryModal";
 import ReviewBar from "@/react-app/components/ide/ReviewBar";
 import { createFile, updateFile, deleteFile } from "@/services/api";
@@ -30,7 +32,12 @@ import { commandService } from "@/services/commandService";
 import { openWorkspace as openBackendWorkspace, reindexWorkspace, searchContext, searchVectorContext, analyzeScreen } from "@/services/workspaceService";
 import { cn } from "@/react-app/lib/utils";
 import { aiOrchestrator } from "@/services/aiOrchestrator";
+import { applyPatch } from 'diff';
 import { CONFIG } from "@/react-app/lib/config";
+import type { AgentEvent } from "@/services/agentService";
+import ChatHistorySidebar from "@/react-app/components/ide/ChatHistorySidebar";
+import SourceControlView from "@/react-app/components/ide/sidebar/SourceControlView";
+import DebugView from "@/react-app/components/ide/sidebar/DebugView";
 
 const getLanguage = (filename: string): string => {
   const ext = filename.split(".").pop()?.toLowerCase();
@@ -61,22 +68,38 @@ const getLanguage = (filename: string): string => {
 
 
 export default function HomePage() {
-  const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
-  const { dispatchCommand } = useIdeCommand();
   const fallbackFileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const { 
+    activeProjectId, setActiveProjectId,
+    sidebarCollapsed, setSidebarCollapsed,
+    sidebarWidth, setSidebarWidth,
+    chatPanelWidth, setChatPanelWidth,
+    sidebarTab, setSidebarTab,
+    terminalVisible, setTerminalVisible,
+    terminalHeight, setTerminalHeight,
+    aiChatVisible, setAiChatVisible,
+    files, setFiles,
+    tabs, setTabs,
+    activeFileId, setActiveFileId,
+    activeProjectPath, setActiveProjectPath,
+    searchModalOpen, setSearchModalOpen,
+    replaceModalOpen, setReplaceModalOpen,
+    showWelcomePage, setShowWelcomePage,
+    showReleaseNotes, setShowReleaseNotes,
+    showKbShortcuts, setShowKbShortcuts
+  } = useIdeStore();
 
-  const [selectedModel, setSelectedModelState] = useState(settings.aiModel || "qwen2.5-coder:7b");
+  const { 
+    messages, setMessages,
+    sessions, setSessions,
+    currentSessionId, setCurrentSessionId,
+    isHistoryOpen, setIsHistoryOpen,
+    isLoading, setIsLoading,
+    newChat, saveChat
+  } = useChatStore();
 
-  const setSelectedModel = (model: string) => {
-    setSelectedModelState(model);
-    updateSettings({ aiModel: model });
-  };
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(256);
-  const [chatPanelWidth, setChatPanelWidth] = useState(320);
   const [resizingPanel, setResizingPanel] = useState<"sidebar" | "chat" | null>(null);
 
   const [diffPreviewState, setDiffPreviewState] = useState<{
@@ -93,21 +116,27 @@ export default function HomePage() {
     modifiedContent: "",
   });
 
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [replaceModalOpen, setReplaceModalOpen] = useState(false);
-  const [showWelcomePage, setShowWelcomePage] = useState(false);
-  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
-  const [showKbShortcuts, setShowKbShortcuts] = useState(false);
-  // Navigation History for GO > Back/Forward
-  const navHistoryRef = useRef<string[]>([]);
-  const navHistoryIndexRef = useRef<number>(-1);
-  const lastEditLocationRef = useRef<{ fileId: string; line: number } | null>(null);
-  // Debug state
+  const [pendingEditProposal, setPendingEditProposal] = useState<PendingEditProposal | null>(null);
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+
+  const { settings, updateSettings, setIsSettingsOpen, setSettingsTab } = useSettings();
+  const { dispatchCommand } = useIdeCommand();
+  const { dialogState, setDialogState, snapshots, setSnapshots } = useIdeStore();
+
+  const selectedModel = settings.aiModel || "qwen2.5-coder:7b";
+  const setSelectedModel = (model: string) => updateSettings({ aiModel: model });
+
   const [debugActive, setDebugActive] = useState(false);
   const [debugPaused, setDebugPaused] = useState(false);
   const [statusBarLine, setStatusBarLine] = useState(1);
   const [statusBarCol, setStatusBarCol] = useState(1);
   const [isBackendConnected, setIsBackendConnected] = useState(true);
+
+  // Navigation History for GO > Back/Forward
+  const navHistoryRef = useRef<string[]>([]);
+  const navHistoryIndexRef = useRef<number>(-1);
+  const lastEditLocationRef = useRef<{ fileId: string; line: number } | null>(null);
+  const selectionRef = useRef<string>("");
 
   // Check backend connectivity
   useEffect(() => {
@@ -138,7 +167,6 @@ export default function HomePage() {
       });
 
       // Trigger a re-fetch of the file explorer tree for affected directories
-      // by resetting children of matching folders to force lazy reload
       setFiles(prev => {
         if (!prev) return [];
         return refreshAffectedNodes(prev, affectedDirs);
@@ -150,6 +178,19 @@ export default function HomePage() {
       watcherSocketRef.current = null;
     };
   }, []);
+
+  // --- Auto-Restore Last Workspace on App Start ---
+  const [hasAttemptedRestore, setHasAttemptedRestore] = useState(false);
+  useEffect(() => {
+    if (!hasAttemptedRestore && isBackendConnected) {
+      const lastWs = localStorage.getItem("ide-last-active-workspace");
+      if (lastWs) {
+        console.log("[Home] Auto-restoring workspace:", lastWs);
+        openWorkspacePath(lastWs).catch(() => {});
+      }
+      setHasAttemptedRestore(true);
+    }
+  }, [isBackendConnected, hasAttemptedRestore]);
 
   /** Recursively find folder nodes whose path is in `dirs` and reset their children to trigger lazy reload */
   function refreshAffectedNodes(items: FileItem[], dirs: Set<string>): FileItem[] {
@@ -191,36 +232,11 @@ export default function HomePage() {
     };
   }, [resizingPanel]);
 
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string>(Date.now().toString());
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [pendingReview, setPendingReview] = useState(false);
   const [reviewFiles] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [dialogState, setDialogState] = useState<{
-    open: boolean;
-    mode: "new-file" | "new-folder" | "rename" | "delete";
-    item?: FileItem;
-    parentId?: string;
-  }>({
-    open: false,
-    mode: "new-file",
-  });
-  const [terminalVisible, setTerminalVisible] = useState(true);
-  const [aiChatVisible, setAiChatVisible] = useState(true);
-  const [terminalHeight, setTerminalHeight] = useState(250);
-  const [activeProjectPath, setActiveProjectPath] = useState<string | undefined>(undefined);
   // Tracks the very first project path — passed as initialCwd to TerminalPanel once
   const [initialTerminalCwd, setInitialTerminalCwd] = useState<string | undefined>(undefined);
-  // console.log("[Home] Rendered with initialTerminalCwd:", initialTerminalCwd);
-
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
-  // Load/Save Sessions
+  // Load/Save Sessions (Legacy LocalStorage fallback fallback)
   useEffect(() => {
     const saved = localStorage.getItem("ide-chat-sessions");
     if (saved) {
@@ -228,11 +244,13 @@ export default function HomePage() {
     }
   }, []);
 
+  // Auto-save Chat History to backend
   useEffect(() => {
-    if (sessions.length > 0) {
-      localStorage.setItem("ide-chat-sessions", JSON.stringify(sessions));
+    if (activeProjectPath && currentSessionId && messages.length > 0) {
+      const timeoutId = setTimeout(() => saveChat(activeProjectPath), 1000);
+      return () => clearTimeout(timeoutId);
     }
-  }, [sessions]);
+  }, [messages, currentSessionId, activeProjectPath, saveChat]);
 
   const toggleSidebarTab = useCallback((tab: SidebarTab) => {
     if (sidebarTab === tab) {
@@ -243,8 +261,19 @@ export default function HomePage() {
     }
   }, [sidebarTab]);
 
-  useIdeCommandListener("view.explorer", () => toggleSidebarTab("explorer"));
-  useIdeCommandListener("view.extensions", () => toggleSidebarTab("extensions"));
+  useIdeCommandListener("view.explorer", () => {
+    if (sidebarTab === "explorer") {
+      setSidebarCollapsed(!sidebarCollapsed);
+    } else {
+      setSidebarTab("explorer");
+      setSidebarCollapsed(false);
+    }
+  });
+  useIdeCommandListener("view.search", () => toggleSidebarTab("search"));
+  useIdeCommandListener("view.aiAssistant", () => {
+    dispatchCommand("view.toggleAiChat");
+    toggleSidebarTab("ai");
+  });
   useIdeCommandListener("view.scm", () => toggleSidebarTab("git"));
   useIdeCommandListener("view.debug", () => toggleSidebarTab("debug"));
 
@@ -294,8 +323,20 @@ export default function HomePage() {
     return context;
   }, []);
 
-  const findFileContent = (files: FileItem[], fileId: string): string | undefined => {
-    for (const file of files) {
+  // --- File operation helpers ---
+  const findItemById = useCallback((items: FileItem[], id: string): FileItem | undefined => {
+    for (const item of items) {
+      if (item.id === id) return item;
+      if (item.children) {
+        const found = findItemById(item.children, id);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  }, []);
+
+  const findFileContent = (items: FileItem[], fileId: string): string | undefined => {
+    for (const file of items) {
       if (file.id === fileId) return file.content;
       if (file.children) {
         const found = findFileContent(file.children, fileId);
@@ -305,46 +346,94 @@ export default function HomePage() {
     return undefined;
   };
 
+  const findAndUpdateFile = useCallback((
+    items: FileItem[],
+    fileId: string,
+    updateFn: (item: FileItem) => FileItem | null
+  ): FileItem[] => {
+    return items
+      .map((item) => {
+        if (item.id === fileId) {
+          return updateFn(item);
+        }
+        if (item.children) {
+          return { ...item, children: findAndUpdateFile(item.children, fileId, updateFn) };
+        }
+        return item;
+      })
+      .filter((item): item is FileItem => item !== null);
+  }, []);
+
+  const findParentAndAdd = useCallback((
+    items: FileItem[],
+    parentId: string,
+    newItem: FileItem
+  ): FileItem[] => {
+    if (parentId === "root") {
+      return [...items, newItem];
+    }
+    return items.map((item) => {
+      if (item.id === parentId) {
+        return { ...item, children: [...(item.children || []), newItem] };
+      }
+      if (item.children) {
+        return { ...item, children: findParentAndAdd(item.children, parentId, newItem) };
+      }
+      return item;
+    });
+  }, []);
+
   const handleFileSelect = useCallback((file: FileItem) => {
     if (file.type === "folder") return;
 
     const openFile = async (item: FileItem) => {
-      let content = item.content || "";
+      // 1. Check if we already have content in memory (e.g. from state or previous fetch)
+      let content = item.content;
 
       // Determine the directory of the file (for terminal fallback)
       if (item.path && !activeProjectPath) {
-        const fileDir = item.path.substring(0, item.path.lastIndexOf('\\')) || item.path.substring(0, item.path.lastIndexOf('/'));
+        const fileDir = item.path.substring(0, Math.max(item.path.lastIndexOf('\\'), item.path.lastIndexOf('/')));
         if (fileDir) {
           setInitialTerminalCwd(fileDir);
-          // Also update the active terminal instance if it exists
           terminalRef.current?.resetForNewWorkspace(fileDir);
         }
       }
 
-      // If server-side file and no content yet, fetch it
-      if (item.path && !item.content) {
+      // 2. Clear previous active state before loading new one (better UX)
+      setActiveFileId(item.id);
+
+      // 3. If no content, fetch it now!
+      if (item.path && content === undefined) {
         try {
+          console.log(`[Home] Fetching content for: ${item.path}`);
           content = await fsService.readFile(item.path);
-          // Update the file in the files tree so we don't fetch it again
-          setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, content })));
+          // Update the file in the tree so we have the content cached
+          setFiles(prev => findAndUpdateFile(prev, item.id, (f) => ({ ...f, content: content || "" })));
         } catch (e) {
           console.error("Failed to read file from server", e);
+          content = "// Error reading file content from server.";
         }
       }
 
-      setActiveFileId(item.id);
+      const finalContent = content !== undefined ? content : "";
+
+      // 4. Update Tabs
       setTabs((prev) => {
         const existingTab = prev.find((t) => t.id === item.id);
         if (existingTab) {
-          return prev.map((t) => ({ ...t, isActive: t.id === item.id }));
+          return prev.map((t) =>
+            t.id === item.id
+              ? { ...t, content: finalContent, language: getLanguage(item.name), isActive: true }
+              : { ...t, isActive: false }
+          );
         }
         return [
           ...prev.map((t) => ({ ...t, isActive: false })),
           {
             id: item.id,
             name: item.name,
-            language: "typescript",
-            content: content,
+            language: getLanguage(item.name),
+            content: finalContent,
             isActive: true,
             isDirty: false,
             path: item.path
@@ -354,7 +443,7 @@ export default function HomePage() {
     };
 
     openFile(file);
-  }, []);
+  }, [activeProjectPath, findAndUpdateFile, fsService, setFiles, setInitialTerminalCwd, setActiveFileId, setTabs, terminalRef]);
 
   const handleTabSelect = useCallback((tabId: string) => {
     setActiveFileId(tabId);
@@ -407,6 +496,8 @@ export default function HomePage() {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
+    const isAgentMode = useIdeStore.getState().agentMode;
+
     const activeTab = tabs.find(t => t.isActive);
     let contextBlock = "";
 
@@ -415,7 +506,15 @@ export default function HomePage() {
 
     // 1. Add Active File Context if enabled
     if (settings.contextualAwareness && activeTab) {
-      contextBlock += `Active File: "${activeTab.name}"\n\`\`\`${getLanguage(activeTab.name)}\n${activeTab.content}\n\`\`\`\n\n`;
+      // SMART CONTEXT GATHERING (Cursor-style)
+      // Extract recent terminal errors and recently active files (except current)
+      const terminalErrors = terminalRef.current 
+        ? terminalRef.current.getOutput().split('\n').filter(line => line.includes('error') || line.includes('Error')).slice(-3) 
+        : [];
+        
+      const recentFiles = tabs.filter(t => t.id !== activeTab.id).slice(0, 3);
+      
+      contextBlock += aiOrchestrator.gatherContext(activeTab, recentFiles, terminalErrors) + "\n";
     }
 
     // 2. Add Tagged Files Context
@@ -464,7 +563,8 @@ export default function HomePage() {
     }
 
     // 3. Add AI Action Protocol System Prompt
-    const systemPrompt = aiOrchestrator.getSystemPrompt();
+    // No longer using useChatStore here, default to "autonomous" if agent, else "default"
+    const systemPrompt = aiOrchestrator.getSystemPrompt(isAgentMode ? "autonomous" : "default");
     const finalPrompt = `${systemPrompt}\n\nContext Information:\n${contextBlock}\nUser Question: ${content}`;
 
     try {
@@ -480,78 +580,174 @@ export default function HomePage() {
 
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
+      
+      if (isAgentMode) {
+        // [AGENT MODE] - Route to the new backend loop
+        const aiMsgId = (Date.now() + 1).toString();
+        const placeholderMsg: ChatMessage = {
+          id: aiMsgId,
+          role: "assistant",
+          content: "Starting autonomous agent loop...",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, placeholderMsg]);
+        setAgentEvents([]);
 
-      // Use the streaming endpoint for real-time token display
-      const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestPayload),
-        signal: signal,
-      });
+        // Inform the user we started via the feed
+        setAgentEvents(prev => [...prev, { type: "tool_call", action: { type: "run_command", command: "Initializing Agent..." } }]);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`Server Error ${response.status}: ${(errorData as any).error || response.statusText}`);
-      }
+        const activeTab = tabs.find(t => t.isActive);
+        const activeFilePath = activeTab?.path || "";
+        const activeFileContent = activeTab?.content || "";
 
-      // Create a placeholder assistant message and stream tokens into it
-      const aiMsgId = (Date.now() + 1).toString();
-      const placeholderMsg: ChatMessage = {
-        id: aiMsgId,
-        role: "assistant",
-        content: "",
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, placeholderMsg]);
+        // Collect tagged files context
+        let taggedContext = "";
+        if (taggedFiles && taggedFiles.length > 0) {
+          taggedContext = "\n--- TAGGED FILES (@Mentions) ---\n";
+          for (const f of taggedFiles) {
+            if (!f.path) continue;
+            try {
+              const fileContent = await fsService.readFile(f.path);
+              taggedContext += `File: ${f.path}\nContent:\n${fileContent}\n\n`;
+            } catch (e) {}
+          }
+        }
 
-      // Read the NDJSON stream
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = "";
+        const agentRes = await fetch(`${CONFIG.TERMINAL_SERVER_URL}/api/ai/agent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+             prompt: finalPrompt + taggedContext,
+             workspaceRoot: activeProjectPath || "",
+             model: selectedModel,
+             activeFilePath,
+             activeFileContent,
+             selection: selectionRef.current,
+          }),
+          signal: abortControllerRef.current.signal,
+        });
 
-      if (reader) {
-        let done = false;
+        if (!agentRes.ok) throw new Error("Agent Backend Error");
+        
+        const reader = agentRes.body?.getReader();
+        const decoder = new TextDecoder();
         let buffer = "";
 
-        while (!done) {
-          const { value, done: readerDone } = await reader.read();
-          done = readerDone;
-          if (value) {
-            buffer += decoder.decode(value, { stream: true });
-            // Parse NDJSON lines
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                const chunk = JSON.parse(line);
-                if (chunk.response) {
-                  fullResponse += chunk.response;
-                  // Update the message content incrementally
-                  setMessages(prev =>
-                    prev.map(m => m.id === aiMsgId ? { ...m, content: fullResponse } : m)
-                  );
+        if (reader) {
+          let streamDone = false;
+          while (!streamDone) {
+            const { value, done: readerDone } = await reader.read();
+            streamDone = readerDone;
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n\n"); // SSE double newline delimiter
+              buffer = lines.pop() || "";
+              
+              for (const line of lines) {
+                if (line.startsWith("data:")) {
+                  const dataStr = line.substring(5).trim();
+                  if (!dataStr) continue;
+                  try {
+                    const evt = JSON.parse(dataStr);
+                    
+                    if (evt.type === "done") {
+                      setAgentEvents(prev => [...prev, { type: "done", success: true, iterations: evt.iterations || 1 }]);
+                      setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+                        ...m,
+                        content: evt.output || "Agent finished.",
+                      } : m));
+                    } else if (evt.type === "error") {
+                      setAgentEvents(prev => [...prev, { type: "error", message: evt.message } as AgentEvent]);
+                      setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+                        ...m,
+                        content: `**Agent Error**: ${evt.message}`
+                      } : m));
+                    } else {
+                      setAgentEvents(prev => [...prev, evt]);
+                    }
+                  } catch (err) {
+                    console.error("Agent SSE parse error", err);
+                  }
                 }
-              } catch {
-                // Skip unparseable chunks
               }
             }
           }
         }
+
+      } else {
+        // [CHAT MODE] - Standard stream logic
+        // Use the streaming endpoint for real-time token display
+        const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
+          signal: signal,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Server Error ${response.status}: ${(errorData as any).error || response.statusText}`);
+        }
+
+        // Create a placeholder assistant message and stream tokens into it
+        const aiMsgId = (Date.now() + 1).toString();
+        const placeholderMsg: ChatMessage = {
+          id: aiMsgId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, placeholderMsg]);
+
+        // Read the NDJSON stream
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = "";
+
+        if (reader) {
+          let done = false;
+          let buffer = "";
+
+          while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              // Parse NDJSON lines
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  const chunk = JSON.parse(line);
+                  if (chunk.response) {
+                    fullResponse += chunk.response;
+                    // Update the message content incrementally
+                    setMessages(prev =>
+                      prev.map(m => m.id === aiMsgId ? { ...m, content: fullResponse } : m)
+                    );
+                  }
+                } catch {
+                  // Skip unparseable chunks
+                }
+              }
+            }
+          }
+        }
+
+        // Parse AI actions from the completed response
+        const actions = aiOrchestrator.parseActions(fullResponse);
+        const cleanContent = aiOrchestrator.stripActions(fullResponse);
+
+        setMessages(prev =>
+          prev.map(m => m.id === aiMsgId ? {
+            ...m,
+            content: cleanContent || "I've processed your request.",
+            actions: actions.length > 0 ? actions : undefined,
+          } : m)
+        );
       }
-
-      // Parse AI actions from the completed response
-      const actions = aiOrchestrator.parseActions(fullResponse);
-      const cleanContent = aiOrchestrator.stripActions(fullResponse);
-
-      setMessages(prev =>
-        prev.map(m => m.id === aiMsgId ? {
-          ...m,
-          content: cleanContent || "I've processed your request.",
-          actions: actions.length > 0 ? actions : undefined,
-        } : m)
-      );
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('AI generation aborted');
@@ -569,7 +765,7 @@ export default function HomePage() {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [settings.ollamaEndpoint, selectedModel, tabs, settings.contextualAwareness]);
+  }, [settings.ollamaEndpoint, selectedModel, tabs, settings.contextualAwareness, files, activeProjectPath, getProjectContext, fsService, setMessages, setIsLoading]);
 
   const handleStopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -617,50 +813,9 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [handleSendMessage]);
+  }, [handleSendMessage, setMessages, setIsLoading]);
 
 
-
-  // File operation helpers
-  const findAndUpdateFile = useCallback((
-    items: FileItem[],
-    fileId: string,
-    updateFn: (item: FileItem) => FileItem | null
-  ): FileItem[] => {
-    return items
-      .map((item) => {
-        if (item.id === fileId) {
-          return updateFn(item);
-        }
-        if (item.children) {
-          return { ...item, children: findAndUpdateFile(item.children, fileId, updateFn) };
-        }
-        return item;
-      })
-      .filter((item): item is FileItem => item !== null);
-  }, []);
-
-  const findParentAndAdd = useCallback((
-    items: FileItem[],
-    parentId: string,
-    newItem: FileItem
-  ): FileItem[] => {
-    if (parentId === "root") {
-      return [...items, newItem];
-    }
-    return items.map((item) => {
-      if (item.id === parentId && item.type === "folder") {
-        return {
-          ...item,
-          children: [...(item.children || []), newItem],
-        };
-      }
-      if (item.children) {
-        return { ...item, children: findParentAndAdd(item.children, parentId, newItem) };
-      }
-      return item;
-    });
-  }, []);
 
   // File operation handlers
   const handleNewFile = useCallback((parentId: string) => {
@@ -712,16 +867,7 @@ export default function HomePage() {
     }
   }, [activeProjectId]);
 
-  const findItemById = useCallback((items: FileItem[], id: string): FileItem | undefined => {
-    for (const item of items) {
-      if (item.id === id) return item;
-      if (item.children) {
-        const found = findItemById(item.children, id);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  }, []);
+
 
   const handleDialogConfirm = useCallback(
     async (value: string) => {
@@ -910,18 +1056,8 @@ export default function HomePage() {
   }, [tabs, activeProjectId]);
 
   const handleNewChat = useCallback(() => {
-    if (messages.length > 0) {
-      const newSession: ChatSession = {
-        id: currentSessionId,
-        title: messages[0].content.slice(0, 30) + (messages[0].content.length > 30 ? "..." : ""),
-        messages: [...messages],
-        timestamp: new Date()
-      };
-      setSessions(prev => [newSession, ...prev]);
-    }
-    setMessages([]);
-    setCurrentSessionId(Date.now().toString());
-  }, [messages, currentSessionId]);
+    newChat();
+  }, [newChat]);
 
   const handleViewHistory = useCallback(() => {
     setIsHistoryOpen(true);
@@ -970,6 +1106,10 @@ export default function HomePage() {
     // Update status bar cursor position
     if (payload?.startLine !== undefined) setStatusBarLine(payload.startLine);
     if (payload?.startLine !== undefined) setStatusBarCol(1); // Monaco col tracking
+    
+    // Sync selection for AI context
+    selectionRef.current = payload?.selectedText || "";
+
     if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
     selectionDebounceRef.current = setTimeout(() => {
       eventService.selectionChange(payload).catch(() => { });
@@ -1036,7 +1176,7 @@ export default function HomePage() {
         console.error("Failed to apply file changes", e);
       }
     }
-  }, [diffPreviewState, findAndUpdateFile]);
+  }, [diffPreviewState, findAndUpdateFile, activeProjectPath]);
 
   const handleApplyAction = useCallback(async (action: AIAction, messageId: string) => {
     // Resolve absolute path if necessary
@@ -1101,6 +1241,7 @@ export default function HomePage() {
       case "create_file":
       case "insert_at_line":
       case "replace_range":
+      case "applyDiff":
         if (resolvedPath) {
           let originalContent = "";
           try {
@@ -1126,26 +1267,88 @@ export default function HomePage() {
             const lines = originalContent.split('\n');
             lines.splice(action.fromLine - 1, action.toLine - action.fromLine + 1, action.content);
             modifiedContent = lines.join('\n');
+          } else if (action.type === "applyDiff" && action.diff) {
+            try {
+              // Apply the unified diff patch to the original content
+              const patched = applyPatch(originalContent, action.diff);
+              if (patched) {
+                modifiedContent = patched;
+              } else {
+                 throw new Error("Patch failed to apply cleanly.");
+              }
+            } catch (err: any) {
+               console.error("Diff application failed:", err);
+               alert(`Failed to apply diff: ${err.message}. The file may have changed since the agent read it.`);
+               return; // Abort showing diff preview
+            }
           }
 
           const fileName = action.path?.split(/[/\\]/).pop() || action.path || "Unnamed File";
-          
-          setDiffPreviewState({
-            isOpen: true,
-            action: { ...action, path: resolvedPath }, // Use resolved path for action in state
-            fileName,
+
+          // Open the file in the editor (if not already open) so diff is visible
+          const existingTab = tabs.find(t => t.path === resolvedPath);
+          if (!existingTab) {
+            const newTab: EditorTab = {
+              id: `fs-${resolvedPath}`,
+              name: fileName,
+              language: getLanguage(fileName),
+              content: originalContent,
+              isActive: true,
+              isDirty: false,
+              path: resolvedPath,
+            };
+            setTabs(prev => [...prev.map(t => ({ ...t, isActive: false })), newTab]);
+            setActiveFileId(newTab.id);
+          } else {
+            // Activate the tab
+            setTabs(prev => prev.map(t => ({ ...t, isActive: t.id === existingTab.id })));
+            setActiveFileId(existingTab.id);
+          }
+
+          // Set the pending edit proposal to show inline diff in editor
+          setPendingEditProposal({
+            tabId: existingTab?.id || `fs-${resolvedPath}`,
+            tabName: fileName,
+            filePath: resolvedPath,
             originalContent,
-            modifiedContent,
-            messageId
+            proposedContent: modifiedContent,
+            messageId,
           });
         }
         break;
     }
   }, [terminalRef, setTerminalVisible, tabs, findAndUpdateFile, activeProjectPath]);
 
+  // Accept the pending AI edit: write file + update tab content, then clear diff state
+  const handleAcceptEdit = useCallback(async () => {
+    if (!pendingEditProposal) return;
+    const { filePath, proposedContent, tabId, messageId } = pendingEditProposal;
+    try {
+      await fsService.writeFile(filePath, proposedContent);
+      setTabs(prev => prev.map(t =>
+        (t.id === tabId || t.path === filePath)
+          ? { ...t, content: proposedContent, isDirty: false }
+          : t
+      ));
+      setFiles(prev => findAndUpdateFile(prev, tabId, f => ({ ...f, content: proposedContent })));
+      if (messageId) {
+        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, applied: true } : m));
+      }
+    } catch (e) {
+      console.error("Failed to accept AI edit", e);
+    }
+    setPendingEditProposal(null);
+  }, [pendingEditProposal, findAndUpdateFile]);
+
+  // Reject the pending AI edit: just clear the proposal, no file change
+  const handleRejectEdit = useCallback(() => {
+    setPendingEditProposal(null);
+  }, []);
+
 
 
   // Track Recent Workspaces (history only — no auto-restore on startup)
+
   useEffect(() => {
     if (activeProjectPath) {
       try {
@@ -1158,6 +1361,11 @@ export default function HomePage() {
         if (history.length > 10) history = history.slice(0, 10);
         localStorage.setItem("ide-recent-workspaces", JSON.stringify(history));
       } catch (e) { }
+    } else {
+      // Fit to screen: Hide auxiliary panels when on Welcome screen
+      setTerminalVisible(false);
+      setAiChatVisible(false);
+      setSidebarCollapsed(true);
     }
   }, [activeProjectPath]);
 
@@ -1359,8 +1567,13 @@ export default function HomePage() {
         terminalRef.current?.resetForNewWorkspace(path);
         setTerminalVisible(true);
 
+        // PERSISTENCE & TITLE
+        localStorage.setItem("ide-last-active-workspace", path);
+        document.title = `${info.name} - Stitch`;
+
       } else {
         alert("Invalid directory path.");
+        localStorage.removeItem("ide-last-active-workspace");
       }
     } catch (e) {
       console.error("Failed to open local path", e);
@@ -1505,6 +1718,105 @@ export default function HomePage() {
       alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
     }
   });
+  useIdeCommandListener("ai.inlineEdit", async (payload: { prompt: string, selectedText: string }) => {
+    const activeTab = tabs.find(t => t.isActive);
+    if (!activeTab || !activeTab.path) {
+      alert("No active file to edit. Please open a file first.");
+      return;
+    }
+
+    setAiChatVisible(true);
+    
+    // Construct the context block strictly for this file and selection
+    const contextBlock = aiOrchestrator.gatherContext(activeTab, [], []);
+    
+    const inlinePromptStr = `
+You are performing an INLINE EDIT. The user has selected a section of code and requested an edit.
+${contextBlock}
+
+[Selected Code]
+\`\`\`${getLanguage(activeTab.name)}
+${payload.selectedText}
+\`\`\`
+
+User Request: ${payload.prompt}
+    
+Output ONLY the JSON action block using applyDiff to patch the file at ${activeTab.path}. Do NOT output any conversational text.
+    `;
+
+    // 1. Send the background message
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: `Inline Edit Request: ${payload.prompt} \n\n\`\`\`${getLanguage(activeTab.name)}\n${payload.selectedText}\n\`\`\``,
+      timestamp: new Date(),
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      const requestPayload = {
+        model: selectedModel,
+        prompt: inlinePromptStr,
+        ollamaEndpoint: settings.ollamaEndpoint
+      };
+
+      abortControllerRef.current = new AbortController();
+      
+      // Use the proxy backend /ai/generate endpoint for synchronous JSON response rather than streaming it token by token to the user
+      // This makes the inline edit feel more "instant" and "magic"
+      const res = await fetch(`${CONFIG.TERMINAL_SERVER_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!res.ok) throw new Error("Backend AI error");
+      const jsonResponse = await res.json();
+      const textResponse = jsonResponse.response || "";
+      
+      // Parse AI actions
+      const actions = aiOrchestrator.parseActions(textResponse);
+      const cleanContent = aiOrchestrator.stripActions(textResponse);
+
+      const aiMsgId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, {
+        id: aiMsgId,
+        role: "assistant",
+        content: cleanContent || "I've proposed an inline edit.",
+        actions: actions.length > 0 ? actions : undefined,
+        timestamp: new Date()
+      }]);
+
+      // Note: Because ChatPanel automatically renders diff previews for messages with "applyDiff" actions,
+      // the user will see the Accept/Reject buttons in the chat, AND our global HandleApplyAction will pop up the DiffPreview UI when clicked.
+      
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: `**Inline Edit Failed:** ${e.message}`,
+          timestamp: new Date()
+        }]);
+      }
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  });
+
+  useIdeCommandListener("ai.explainSelection", () => {
+     // Triggered from Editor
+     const sel = document.getSelection()?.toString();
+     if(sel) {
+        setAiChatVisible(true);
+        handleSendMessage(`Explain this code:\n\n\`\`\`\n${sel}\n\`\`\``);
+     }
+  });
+
   useIdeCommandListener("file.saveAll", async () => {
     const dirtyTabs = tabs.filter(t => t.isDirty);
     for (const tab of dirtyTabs) {
@@ -1559,7 +1871,7 @@ export default function HomePage() {
     const activeTab = tabs.find(t => t.isActive);
     if (!activeTab) return;
 
-    const defaultPath = activeTab.path || (activeProjectPath ? `${activeProjectPath}\\new-file.txt` : "X:\\Project-Buildings\\new-file.txt");
+    const defaultPath = activeTab.path || (activeProjectPath ? `${activeProjectPath}\\new-file.txt` : "new-file.txt");
     const newPath = prompt("Enter the absolute path to save the new file:", defaultPath);
     if (!newPath) return;
 
@@ -1649,7 +1961,7 @@ export default function HomePage() {
   });
 
   return (
-    <div className="h-screen flex flex-col bg-ide-bg overflow-hidden">
+    <div className="h-screen flex flex-col bg-ide-bg ide-app-shell overflow-hidden">
       <DiffPreviewModal
         isOpen={diffPreviewState.isOpen}
         fileName={diffPreviewState.fileName}
@@ -1709,6 +2021,18 @@ export default function HomePage() {
             />
           )}
           <div className="flex-1 flex flex-col min-h-0 relative">
+            {/* Source Control full-panel overlay */}
+            {sidebarTab === "git" && !sidebarCollapsed && (
+              <div className="absolute inset-0 z-10 flex bg-ide-bg">
+                <SourceControlView rootPath={activeProjectPath} />
+              </div>
+            )}
+            {/* Debug full-panel overlay */}
+            {sidebarTab === "debug" && !sidebarCollapsed && (
+              <div className="absolute inset-0 z-10 flex bg-ide-bg">
+                <DebugView rootPath={activeProjectPath} />
+              </div>
+            )}
             <Editor
               tabs={tabs}
               onTabSelect={handleTabSelect}
@@ -1716,6 +2040,9 @@ export default function HomePage() {
               onContentChange={handleContentChange}
               onTabRename={handleTabRename}
               onSelectionChange={handleSelectionChange}
+              pendingEdit={pendingEditProposal}
+              onAcceptEdit={handleAcceptEdit}
+              onRejectEdit={handleRejectEdit}
             />
             {/* Debug Toolbar overlay */}
             {debugActive && (
@@ -1790,22 +2117,31 @@ export default function HomePage() {
               >
                 <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-ide-border group-hover:bg-indigo-500 group-active:bg-indigo-500 transition-colors" />
               </div>
-              <ChatPanel
-                messages={messages}
-                onSendMessage={handleSendMessage}
-                onActionClick={handleActionClick}
-                onApplyAction={handleApplyAction}
-                isLoading={isLoading}
-                selectedModel={selectedModel}
-                files={files}
-                width={chatPanelWidth}
-                isResizing={resizingPanel === "chat"}
-                onNewChat={handleNewChat}
-                onViewHistory={handleViewHistory}
-                onRevert={handleRevert}
-                onAnalyzeScreen={handleAnalyzeScreen}
-                onStopGeneration={handleStopGeneration}
-              />
+              
+              {isHistoryOpen ? (
+                <ChatHistorySidebar 
+                  onClose={() => setIsHistoryOpen(false)} 
+                  width={chatPanelWidth} 
+                />
+              ) : (
+                <ChatPanel
+                  messages={messages}
+                  onSendMessage={handleSendMessage}
+                  onActionClick={handleActionClick}
+                  onApplyAction={handleApplyAction}
+                  isLoading={isLoading}
+                  selectedModel={selectedModel}
+                  files={files}
+                  width={chatPanelWidth}
+                  isResizing={resizingPanel === "chat"}
+                  onNewChat={handleNewChat}
+                  onViewHistory={handleViewHistory}
+                  onRevert={handleRevert}
+                  onAnalyzeScreen={handleAnalyzeScreen}
+                  onStopGeneration={handleStopGeneration}
+                  agentEvents={agentEvents}
+                />
+              )}
             </>
           )}
         </div>
@@ -1830,7 +2166,7 @@ export default function HomePage() {
       )}
       <FileOperationDialog
         open={dialogState.open}
-        onOpenChange={(open) => setDialogState((prev) => ({ ...prev, open }))}
+        onOpenChange={(open) => setDialogState((prev: { open: boolean, mode: string, item?: any, parentId?: string }) => ({ ...prev, open }))}
         mode={dialogState.mode}
         initialValue={dialogState.mode === "rename" ? dialogState.item?.name : ""}
         itemName={dialogState.item?.name}

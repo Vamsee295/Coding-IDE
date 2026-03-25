@@ -11,9 +11,10 @@ export interface FileItem {
 }
 
 export interface AIAction {
-  type: "write_file" | "create_file" | "run_command" | "delete_file" | "rename_file" | "insert_at_line" | "replace_range" | "read_file";
+  type: "write_file" | "writeFile" | "create_file" | "createFile" | "run_command" | "runCommand" | "delete_file" | "deleteFile" | "rename_file" | "read_file" | "readFile" | "applyDiff" | "insert_at_line" | "replace_range";
   path?: string;
   content?: string;
+  diff?: string;
   command?: string;
   newPath?: string;      // for rename_file
   line?: number;         // for insert_at_line
@@ -21,6 +22,16 @@ export interface AIAction {
   toLine?: number;       // for replace_range
   isRevert?: boolean;    // for revert flow
 }
+
+export interface PendingEditProposal {
+  tabId: string;
+  tabName: string;
+  filePath: string;
+  originalContent: string;
+  proposedContent: string;
+  messageId: string;
+}
+
 
 
 export interface ChatMessage {
@@ -67,4 +78,4 @@ export interface ModelOption {
   description: string;
 }
 
-export type SidebarTab = "explorer" | "search" | "git" | "debug" | "extensions";
+export type SidebarTab = "explorer" | "search" | "git" | "debug" | "extensions" | "ai";

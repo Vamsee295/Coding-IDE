@@ -61,6 +61,7 @@ export interface TerminalPanelHandle {
   killActiveTerminal: () => void;
   clearActiveTerminal: () => void;
   splitTerminal: () => void;
+  getOutput: () => string;
 }
 
 interface PanelManagerProps {
@@ -156,13 +157,13 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
         fontSize: 13, lineHeight: 1.45, cursorBlink: true, cursorStyle: "bar",
         allowTransparency: true, scrollback: 10000, convertEol: false,
         theme: {
-          background: "#000000", foreground: "#cdd6f4", cursor: "#cdd6f4",
-          selectionBackground: "#45475a",
-          black: "#45475a", red: "#f38ba8", green: "#a6e3a1", yellow: "#f9e2af",
-          blue: "#89b4fa", magenta: "#cba6f7", cyan: "#89dceb", white: "#bac2de",
-          brightBlack: "#585b70", brightRed: "#f38ba8", brightGreen: "#a6e3a1",
-          brightYellow: "#f9e2af", brightBlue: "#89b4fa", brightMagenta: "#cba6f7",
-          brightCyan: "#89dceb", brightWhite: "#a6adc8",
+          background: "#0c0f14", foreground: "#d5d6db", cursor: "#cfd5e1",
+          selectionBackground: "rgba(124, 92, 255, 0.22)",
+          black: "#0c0f14", red: "#ff8080", green: "#80ff80", yellow: "#ffff80",
+          blue: "#80d9ff", magenta: "#d980ff", cyan: "#80ffff", white: "#d9d9d9",
+          brightBlack: "#1a1f2b", brightRed: "#ffb3b3", brightGreen: "#b3ffb3",
+          brightYellow: "#ffffb3", brightBlue: "#b3e6ff", brightMagenta: "#e6b3ff",
+          brightCyan: "#b3ffff", brightWhite: "#ffffff",
         },
       });
       const fitAddon = new FitAddon();
@@ -278,6 +279,23 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
         });
         setSplitTerminalId(id);
         setActivePanel("terminal");
+      },
+      getOutput: () => {
+        const active = tabs.find(t => t.isActive);
+        if (!active) return "";
+        const session = sessions.current.get(active.id);
+        if (!session) return "";
+        
+        // Extract up to the last 100 lines of terminal output
+        const term = session.terminal;
+        const buffer = term.buffer.active;
+        let output = "";
+        const start = Math.max(0, buffer.length - 100);
+        for (let i = start; i < buffer.length; i++) {
+            const line = buffer.getLine(i);
+            if (line) output += line.translateToString(true) + "\n";
+        }
+        return output;
       }
     }), [tabs, destroySession, initialCwd]);
 
@@ -368,12 +386,12 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
     const activeCwd = tabs.find(t => t.isActive)?.cwd || initialCwd;
 
     return (
-      <div className="bg-ide-bg border-t border-ide-border flex flex-col" style={{ height: `${height}px` }}>
+      <div className="bg-ide-panel border-t border-ide-border flex flex-col shadow-[0_-15px_30px_-5px_rgba(0,0,0,0.5)] z-20 relative" style={{ height: `${height}px` }}>
         {/* Resize Handle */}
-        <div className="h-1 bg-ide-border hover:bg-indigo-500 cursor-row-resize transition-colors flex-shrink-0" onMouseDown={handleMouseDown} />
+        <div className="h-1 bg-ide-border hover:bg-ide-accent cursor-row-resize transition-colors flex-shrink-0 relative z-30" onMouseDown={handleMouseDown} />
 
         {/* Top Tab Bar */}
-        <div className="h-9 bg-ide-sidebar border-b border-ide-border flex items-center justify-between px-2 flex-shrink-0">
+        <div className="h-9 bg-ide-panel/90 backdrop-blur-md border-b border-ide-border/50 flex items-center justify-between px-2 flex-shrink-0">
           {/* Panel tabs */}
           <div className="flex items-center h-full">
             {PANEL_TABS.map(pt => (
@@ -381,10 +399,10 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
                 key={pt.id}
                 onClick={() => setActivePanel(pt.id)}
                 className={cn(
-                  "h-full flex items-center gap-1.5 px-3 text-xs font-medium border-b-2 transition-colors",
+                  "h-full flex items-center gap-1.5 px-3 text-xs font-medium transition-colors",
                   activePanel === pt.id
-                    ? "border-indigo-400 text-ide-text-primary"
-                    : "border-transparent text-ide-text-secondary hover:text-ide-text-primary"
+                    ? "text-ide-text-primary"
+                    : "text-ide-text-secondary hover:text-ide-text-primary"
                 )}
               >
                 {pt.icon}
@@ -411,14 +429,14 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
                     <div className="border-b border-ide-border/60">
                       <button onClick={() => spawnNewTerminal()} className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-4 flex justify-center"><Plus className="w-3.5 h-3.5 text-indigo-400" /></div>
+                          <div className="w-4 flex justify-center"><Plus className="w-3.5 h-3.5 text-ide-text-primary" /></div>
                           <span className="font-medium">New Terminal</span>
                         </div>
                         <span className="text-ide-text-secondary text-[10px]">Ctrl+Shift+`</span>
                       </button>
                       <button className="w-full flex items-center justify-between px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors opacity-50 cursor-not-allowed">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-4 flex justify-center"><SquareSplitHorizontal className="w-3.5 h-3.5 text-indigo-400" /></div>
+                          <div className="w-4 flex justify-center"><SquareSplitHorizontal className="w-3.5 h-3.5 text-ide-text-primary" /></div>
                           <span>Split Terminal</span>
                         </div>
                         <span className="text-ide-text-secondary text-[10px]">Ctrl+Shift+5</span>
@@ -427,7 +445,7 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
                     <div className="border-b border-ide-border/60">
                       {TERMINAL_PROFILES.map(p => (
                         <button key={p.value} onClick={() => spawnNewTerminal(p.value)} className="w-full flex items-center justify-start gap-2.5 px-3 py-2 text-xs text-ide-text-primary hover:bg-ide-hover transition-colors">
-                          <span className="text-indigo-400 font-mono text-[11px] w-4 text-center">{p.icon}</span>
+                          <span className="text-ide-text-primary font-mono text-[11px] w-4 text-center">{p.icon}</span>
                           <span>{p.label}</span>
                         </button>
                       ))}
@@ -524,17 +542,17 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
 
             {/* Terminal list sidebar */}
             {tabs.length > 0 && (
-              <div className="w-44 flex-shrink-0 border-l border-ide-border bg-ide-sidebar overflow-y-auto">
+              <div className="w-44 flex-shrink-0 border-l border-ide-border/50 bg-ide-panel overflow-y-auto">
                 {tabs.map(tab => (
                   <div
                     key={tab.id}
                     onClick={() => handleSelectTab(tab.id)}
                     className={cn(
-                      "group flex items-center gap-2 px-2 py-1.5 cursor-pointer text-xs transition-colors",
-                      tab.isActive ? "bg-ide-hover text-ide-text-primary" : "text-ide-text-secondary hover:bg-ide-hover/50 hover:text-ide-text-primary"
+                      "group flex items-center gap-2 px-2 py-1.5 cursor-pointer text-xs transition-all duration-200 border-r-2",
+                      tab.isActive ? "bg-ide-active/30 text-ide-text-primary border-ide-accent premium-glow" : "text-ide-text-secondary hover:bg-white/5 hover:text-ide-text-primary border-transparent"
                     )}
                   >
-                    <TerminalIcon className={cn("w-3.5 h-3.5 flex-shrink-0", tab.isActive ? "text-indigo-400" : "text-ide-text-secondary")} />
+                    <TerminalIcon className={cn("w-3.5 h-3.5 flex-shrink-0", tab.isActive ? "text-ide-text-primary" : "text-ide-text-secondary")} />
                     <div className="flex-1 min-w-0 leading-tight">
                       <div className="font-mono truncate">
                         {tab.profile ? tab.profile.toLowerCase().split(" ")[0] : tab.name}

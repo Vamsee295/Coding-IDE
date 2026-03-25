@@ -19,7 +19,7 @@ public class IdeApplication {
 		return args -> {
 			if (repository.findAll().isEmpty()) {
 				Project p = new Project("redddit-posts-sentiments", "Sentiment analysis of Reddit posts");
-				p.setRootPath("X:\\Project-Buildings\\redddit-posts-sentiments");
+				p.setRootPath("./redddit-posts-sentiments");
 				repository.save(p);
 			}
 		};

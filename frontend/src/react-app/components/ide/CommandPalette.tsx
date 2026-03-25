@@ -64,6 +64,7 @@ const COMMAND_REGISTRY: { id: IdeCommandId; label: string; category: string }[] 
     { id: "view.commandPalette", label: "Show Command Palette", category: "View" },
     { id: "view.explorer", label: "Toggle Explorer", category: "View" },
     { id: "view.search", label: "Toggle Search", category: "View" },
+    { id: "view.aiAssistant", label: "Toggle AI Assistant Sidebar", category: "View" },
     { id: "view.extensions", label: "Toggle Extensions", category: "View" },
     { id: "view.scm", label: "Toggle Source Control", category: "View" },
     { id: "view.debug", label: "Toggle Debug Runner", category: "View" },

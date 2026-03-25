@@ -40,14 +40,14 @@ public class IdeController {
     }
 
     @GetMapping("/{projectId}")
-    public ResponseEntity<Project> getProject(@PathVariable String projectId) {
+    public ResponseEntity<Project> getProject(@PathVariable(name = "projectId") String projectId) {
         return projectRepository.findById(projectId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{projectId}")
-    public ResponseEntity<Void> deleteProject(@PathVariable String projectId) {
+    public ResponseEntity<Void> deleteProject(@PathVariable(name = "projectId") String projectId) {
         if (projectRepository.existsById(projectId)) {
             // Also delete all files by project (cascading could handle this in DB too)
             List<FileItem> files = fileItemRepository.findByProjectId(projectId);
@@ -62,7 +62,7 @@ public class IdeController {
     // --- FILE/WORKSPACE ENDPOINTS ---
 
     @GetMapping("/{projectId}/files")
-    public ResponseEntity<List<FileItem>> getProjectFiles(@PathVariable String projectId) {
+    public ResponseEntity<List<FileItem>> getProjectFiles(@PathVariable(name = "projectId") String projectId) {
         if (!projectRepository.existsById(projectId)) {
             return ResponseEntity.notFound().build();
         }
@@ -71,7 +71,7 @@ public class IdeController {
 
     @PostMapping("/{projectId}/files")
     public ResponseEntity<FileItem> createFile(
-            @PathVariable String projectId,
+            @PathVariable(name = "projectId") String projectId,
             @RequestBody Map<String, String> payload) {
 
         Optional<Project> projectOpt = projectRepository.findById(projectId);
@@ -102,7 +102,7 @@ public class IdeController {
 
     @PutMapping("/files/{fileId}")
     public ResponseEntity<FileItem> updateFile(
-            @PathVariable String fileId,
+            @PathVariable(name = "fileId") String fileId,
             @RequestBody Map<String, String> payload) {
 
         return fileItemRepository.findById(fileId).map(item -> {
@@ -117,7 +117,7 @@ public class IdeController {
     }
 
     @DeleteMapping("/files/{fileId}")
-    public ResponseEntity<Void> deleteFile(@PathVariable String fileId) {
+    public ResponseEntity<Void> deleteFile(@PathVariable(name = "fileId") String fileId) {
         // Find children and delete them first
         List<FileItem> children = fileItemRepository.findByParentId(fileId);
         if (!children.isEmpty()) {

@@ -318,13 +318,11 @@ router.delete('/vscode-extensions/import', (req, res) => {
 router.get('/pick-folder', (req, res) => {
     if (os.platform() !== 'win32') return res.status(500).json({ error: 'Only supported on Windows' });
 
+    // Using Shell.Application for a more modern native folder picker on Windows
     const ps1Script = `
-        Add-Type -AssemblyName System.windows.forms;
-        $f = New-Object System.Windows.Forms.FolderBrowserDialog;
-        $f.Description = "Select Workspace Folder";
-        $f.ShowNewFolderButton = $true;
-        $result = $f.ShowDialog();
-        if ($result -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.BrowseForFolder(0, "Select Project Folder", 0x00000040, 17)
+        if ($folder) { Write-Output $folder.Self.Path }
     `;
     const ps = spawn('powershell', ['-NoProfile', '-STA', '-Command', ps1Script]);
     let pathChunk = '';
@@ -580,6 +578,283 @@ router.get('/ai/analyze-screen', async (req, res) => {
         res.json(data);
     } catch (e) {
         res.status(500).json({ error: 'Screen analysis failed: ' + e.message });
+    }
+});
+
+// ── AUTONOMOUS AGENT ENDPOINT ───────────────────────────────────────────
+// Streams NDJSON events: { type, ... }
+// Event types: step_start | tool_call | tool_result | response | done | error
+
+const BLOCKED_COMMANDS = [
+    'rm -rf', 'del /f /s /q', 'format', 'mkfs', 'shutdown', 'reboot',
+    'DROP TABLE', 'DROP DATABASE', ':(){:|:&};:', 'dd if='
+];
+
+function isSafeCommand(cmd) {
+    const lower = cmd.toLowerCase();
+    return !BLOCKED_COMMANDS.some(blocked => lower.includes(blocked.toLowerCase()));
+}
+
+function isSafePath(targetPath, workspaceRoot) {
+    if (!workspaceRoot) return true; // No workspace set — allow all
+    const resolved = path.resolve(targetPath);
+    const wsResolved = path.resolve(workspaceRoot);
+    return resolved.startsWith(wsResolved);
+}
+
+const diff = require('diff');
+
+// Extract JSON action blocks from LLM text
+function parseAgentActions(text) {
+    const actions = [];
+    const blockRegex = /```json\s*(\{[\s\S]*?\})\s*```/g;
+    let block;
+    let foundJson = false;
+    
+    while ((block = blockRegex.exec(text)) !== null) {
+        foundJson = true;
+        try {
+            const parsed = JSON.parse(block[1]);
+            // Format can be {"mode": "agent", "actions": [{...}]}
+            if (parsed && Array.isArray(parsed.actions)) {
+                actions.push(...parsed.actions);
+            }
+        } catch (e) {
+            console.error("Failed to parse agent JSON block:", e);
+        }
+    }
+
+    // Fallback: If no markdown block, try parsing the whole thing if it looks like JSON
+    if (!foundJson && text.trim().startsWith('{') && text.trim().endsWith('}')) {
+       try {
+            const parsed = JSON.parse(text.trim());
+            if (parsed && Array.isArray(parsed.actions)) {
+                actions.push(...parsed.actions);
+            }
+        } catch (e) {}
+    }
+
+    return actions;
+}
+
+async function executeTool(action, workspaceRoot, cwd) {
+    const resolvedPath = (p) => {
+        if (path.isAbsolute(p)) return p;
+        return cwd ? path.join(cwd, p) : path.join(workspaceRoot || process.cwd(), p);
+    };
+
+    switch (action.type) {
+        case 'read_file':
+        case 'readFile': {
+            const fp = resolvedPath(action.path);
+            if (!isSafePath(fp, workspaceRoot)) throw new Error(`Access denied: ${fp}`);
+            return fs.readFileSync(fp, 'utf-8');
+        }
+        case 'write_file':
+        case 'writeFile':
+        case 'create_file':
+        case 'createFile': {
+            const fp = resolvedPath(action.path);
+            if (!isSafePath(fp, workspaceRoot)) throw new Error(`Access denied: ${fp}`);
+            fs.mkdirSync(path.dirname(fp), { recursive: true });
+            fs.writeFileSync(fp, action.content, 'utf-8');
+            return `File written: ${fp}`;
+        }
+        case 'applyDiff': {
+            const fp = resolvedPath(action.path);
+            if (!isSafePath(fp, workspaceRoot)) throw new Error(`Access denied: ${fp}`);
+            if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+            
+            const original = fs.readFileSync(fp, 'utf-8');
+            // We expect unified diff format
+            const patched = diff.applyPatch(original, action.diff);
+            if (patched === false) {
+                throw new Error("Failed to apply diff cleanly. The file may have changed or the diff is invalid.");
+            }
+            fs.writeFileSync(fp, patched, 'utf-8');
+            return `Diff applied successfully: ${fp}`;
+        }
+        case 'delete_file':
+        case 'deleteFile': {
+            const fp = resolvedPath(action.path);
+            if (!isSafePath(fp, workspaceRoot)) throw new Error(`Access denied: ${fp}`);
+            fs.unlinkSync(fp);
+            return `File deleted: ${fp}`;
+        }
+        case 'run_command':
+        case 'runCommand': {
+            if (!isSafeCommand(action.command)) throw new Error(`Blocked dangerous command: ${action.command}`);
+            return new Promise((resolve, reject) => {
+                exec(action.command, { cwd: cwd || workspaceRoot || process.cwd(), timeout: 30000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout, stderr) => {
+                    if (err && !stdout) return reject(stderr || err.message);
+                    resolve((stdout + (stderr ? `\nSTDERR: ${stderr}` : '')).trim());
+                });
+            });
+        }
+        default:
+            return null;
+    }
+}
+
+router.post('/ai/agent', async (req, res) => {
+    const { prompt, projectContext, workspaceRoot, ollamaEndpoint, model, maxIterations } = req.body;
+
+    if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+    const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const MODEL = model || 'qwen2.5-coder:7b';
+    const MAX_ITER = Math.min(parseInt(maxIterations || '8'), 12);
+
+    // SSE / NDJSON streaming setup
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const emit = (obj) => {
+        try { res.write(JSON.stringify(obj) + '\n'); } catch (_) {}
+    };
+
+    const SYSTEM_PROMPT = `You are a Cursor-like AI integrated inside a code editor.
+
+You operate in 3 modes:
+1. Chat -> Explain and answer
+2. Edit -> Modify selected code
+3. Agent -> Perform multi-step actions on the project
+
+You have access to tools via structured JSON outut.
+Tools:
+- readFile (path)
+- applyDiff (path, diff) -> diff must be a standard Unified Diff format
+- createFile (path, content)
+- writeFile (path, content) -> completely overrides a file
+- runCommand (command)
+
+IMPORTANT RULES:
+- Always read relevant files before editing. NEVER edit blind.
+- Never rewrite an entire file using writeFile unless you are creating it from scratch.
+- ALWAYS prefer applyDiff for modifying existing files. It is faster and safer.
+- Work step-by-step.
+- Validate changes by running tests or commands if applicable.
+
+OUTPUT FORMAT (STRICT JSON IN MARKDOWN BLOCK):
+You MUST respond with a single JSON block wrapped in \`\`\`json. Do NOT include any text outside this block if you are taking actions.
+
+\`\`\`json
+{
+  "mode": "agent",
+  "plan": "short explanation of what you will do in this step",
+  "actions": [
+    {
+      "type": "readFile",
+      "path": "src/App.tsx"
+    },
+    {
+      "type": "applyDiff",
+      "path": "src/App.tsx",
+      "diff": "--- a/src/App.tsx\\n+++ b/src/App.tsx\\n@@ -1,3 +1,4 @@\\n+import { NewComponent } from './NewComponent';\\n..."
+    }
+  ],
+  "finalMessage": "Optional user-facing message. Leave empty if you need another iteration."
+}
+\`\`\`
+
+If you are completely finished with the user's task, include an action with type "task_complete" or emit a finalMessage summarizing the result.`;
+
+    let conversationHistory = `${SYSTEM_PROMPT}\n\nProject Context:\n${projectContext || 'No project context provided.'}\n\nUser Task: ${prompt}`;
+
+    try {
+        for (let iteration = 0; iteration < MAX_ITER; iteration++) {
+            emit({ type: 'step_start', iteration: iteration + 1, maxIterations: MAX_ITER });
+
+            // Call Ollama
+            let fullResponse = '';
+            try {
+                const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: MODEL, prompt: conversationHistory, stream: true }),
+                });
+
+                if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
+
+                const reader = ollamaRes.body;
+                let buffer = '';
+                for await (const chunk of reader) {
+                    buffer += chunk.toString();
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const parsed = JSON.parse(line);
+                            if (parsed.response) {
+                                fullResponse += parsed.response;
+                                emit({ type: 'token', content: parsed.response });
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (ollamaErr) {
+                emit({ type: 'error', message: `Failed to reach Ollama: ${ollamaErr.message}` });
+                break;
+            }
+
+            // Parse AI actions
+            const actions = parseAgentActions(fullResponse);
+            
+            // Check if AI included a finalMessage in the JSON block
+            let finalMsg = '';
+            try {
+               const blockMatch = /```json\s*(\{[\s\S]*?\})\s*```/g.exec(fullResponse);
+               if (blockMatch) {
+                   const parsed = JSON.parse(blockMatch[1]);
+                   if (parsed.finalMessage) finalMsg = parsed.finalMessage;
+               } else if (fullResponse.trim().startsWith('{')) {
+                   const parsed = JSON.parse(fullResponse.trim());
+                   if (parsed.finalMessage) finalMsg = parsed.finalMessage;
+               }
+            } catch (e) {}
+
+            if (actions.length === 0 || actions.some(a => a.type === 'task_complete')) {
+                // AI is done — emit the response and finish
+                emit({ type: 'response', content: finalMsg || fullResponse });
+                emit({ type: 'done', iterations: iteration + 1 });
+                return res.end();
+            }
+
+            // Execute each tool action
+            let toolResultsBlock = '\n\nTool Results:\n';
+            for (const action of actions) {
+                if (action.type === 'task_complete') {
+                    emit({ type: 'response', content: finalMsg || fullResponse });
+                    emit({ type: 'done', iterations: iteration + 1 });
+                    return res.end();
+                }
+
+                emit({ type: 'tool_call', action });
+
+                try {
+                    const result = await executeTool(action, workspaceRoot, workspaceRoot);
+                    const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+                    emit({ type: 'tool_result', action, result: resultStr, success: true });
+                    toolResultsBlock += `[${action.type}${action.path ? ` → ${action.path}` : ''}]\n${resultStr}\n\n`;
+                } catch (toolErr) {
+                    emit({ type: 'tool_result', action, result: toolErr.message, success: false });
+                    toolResultsBlock += `[${action.type} ERROR: ${toolErr.message}]\n\n`;
+                }
+            }
+
+            // Append response + results to conversation for next iteration
+            conversationHistory += `\n\nAssistant: ${fullResponse}\n${toolResultsBlock}\nContinue the task. Output your next step as strict JSON. If complete, include "type": "task_complete" in actions or provide a finalMessage.`;
+        }
+
+        // Max iterations reached
+        emit({ type: 'done', iterations: MAX_ITER, warning: 'Max iterations reached' });
+        res.end();
+    } catch (err) {
+        emit({ type: 'error', message: err.message });
+        res.end();
     }
 });
 

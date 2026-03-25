@@ -48,7 +48,7 @@ public class FileSystemController {
      * Lists the contents of a directory (shallow scan for lazy loading)
      */
     @GetMapping("/list")
-    public ResponseEntity<?> listDirectory(@RequestParam String path) {
+    public ResponseEntity<?> listDirectory(@RequestParam(name = "path") String path) {
         if (!isPathAllowed(path)) return forbidden();
 
         File directory = new File(path);
@@ -95,7 +95,7 @@ public class FileSystemController {
      * Reads the content of a file
      */
     @GetMapping("/read")
-    public ResponseEntity<?> readFile(@RequestParam String path) {
+    public ResponseEntity<?> readFile(@RequestParam(name = "path") String path) {
         if (!isPathAllowed(path)) return forbidden();
 
         try {
@@ -137,7 +137,7 @@ public class FileSystemController {
      * This is intentionally NOT sandboxed so users can switch to new workspaces.
      */
     @GetMapping("/exists")
-    public ResponseEntity<?> checkExists(@RequestParam String path) {
+    public ResponseEntity<?> checkExists(@RequestParam(name = "path") String path) {
         File file = new File(path);
         Map<String, Object> result = new HashMap<>();
         result.put("exists", file.exists());
@@ -174,7 +174,7 @@ public class FileSystemController {
      * Deletes a file or directory
      */
     @DeleteMapping("/delete")
-    public ResponseEntity<?> deleteItem(@RequestParam String path) {
+    public ResponseEntity<?> deleteItem(@RequestParam(name = "path") String path) {
         if (path == null) {
             return ResponseEntity.badRequest().body("Path is required");
         }
@@ -240,9 +240,9 @@ public class FileSystemController {
      */
     @GetMapping("/search")
     public ResponseEntity<?> searchFiles(
-            @RequestParam String query,
-            @RequestParam String rootPath,
-            @RequestParam(required = false, defaultValue = "false") boolean regex) {
+            @RequestParam(name = "query") String query,
+            @RequestParam(name = "rootPath") String rootPath,
+            @RequestParam(name = "regex", required = false, defaultValue = "false") boolean regex) {
         if (query == null || query.isEmpty()) {
             return ResponseEntity.badRequest().body("Query is required");
         }

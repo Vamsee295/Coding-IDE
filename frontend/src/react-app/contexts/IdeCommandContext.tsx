@@ -56,11 +56,14 @@ export type IdeCommandId =
     | "view.commandPalette"
     | "view.explorer"
     | "view.search"
+    | "view.aiAssistant"
     | "view.extensions"
     | "view.scm"
     | "view.debug"
     | "view.terminal"
     | "view.toggleAiChat"
+    | "ai.inlineEdit"
+    | "ai.explainSelection"
     | "view.wordWrap"
     | "view.toggleActivityBar"
     | "view.toggleStatusBar"
@@ -141,7 +144,7 @@ export type IdeCommandId =
 type CommandListener = (payload?: any) => void;
 
 interface IdeCommandContextType {
-    dispatchCommand: (commandId: IdeCommandId, payload?: any) => void;
+    dispatchCommand: (commandId: IdeCommandId, payload?: any) => boolean;
     registerListener: (commandId: IdeCommandId, listener: CommandListener) => () => void;
 }
 
@@ -161,12 +164,14 @@ export function IdeCommandProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    const dispatchCommand = useCallback((commandId: IdeCommandId, payload?: any) => {
+    const dispatchCommand = useCallback((commandId: IdeCommandId, payload?: any): boolean => {
         const listeners = listenersRef.current[commandId];
-        if (listeners) {
+        if (listeners && listeners.size > 0) {
             listeners.forEach((listener) => listener(payload));
+            return true;
         } else {
             console.log(`[CommandRegistry] Unhandled command dispatched: ${commandId}`);
+            return false;
         }
     }, []);
 
@@ -186,12 +191,16 @@ export function IdeCommandProvider({ children }: { children: ReactNode }) {
                 // Allow exact match of modifiers
 
                 if (matchKey && matchCtrl && matchShift && matchAlt) {
-                    // Prevent default behavior (e.g., Ctrl+S saving the webpage)
-                    if (binding.preventDefault !== false) {
-                        e.preventDefault();
-                    }
                     console.log(`[KeybindingManager] Matched ${e.key} -> Dispatching ${binding.commandId}`);
-                    dispatchCommand(binding.commandId);
+                    const handled = dispatchCommand(binding.commandId);
+                    
+                    // Only prevent default if the command was actually handled by a listener
+                    // or if it's explicitly marked to always prevent default
+                    if (handled && binding.preventDefault !== false) {
+                        e.preventDefault();
+                    } else if (!handled) {
+                         console.log(`[KeybindingManager] ${binding.commandId} not handled, letting browser process ${e.key}`);
+                    }
                     return; // Stop after first match
                 }
             }

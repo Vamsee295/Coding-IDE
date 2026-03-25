@@ -8,6 +8,8 @@ import {
   Settings,
   Puzzle,
   Bug,
+  Search,
+  Sparkles,
 } from "lucide-react";
 import { FileItem, SidebarTab } from "@/react-app/types/ide";
 import { cn } from "@/react-app/lib/utils";
@@ -17,7 +19,9 @@ import FileContextMenu from "./FileContextMenu";
 import { useSettings } from "@/react-app/contexts/SettingsContext";
 import SourceControlView from "./sidebar/SourceControlView";
 import DebugView from "./sidebar/DebugView";
+import SearchView from "./sidebar/SearchView";
 import { getFileIconUrl, getFolderIconUrl } from "@/react-app/lib/fileIcons";
+import { useIdeCommand } from "@/react-app/contexts/IdeCommandContext";
 
 interface SidebarProps {
   files: FileItem[];
@@ -91,8 +95,9 @@ function FileTreeItem({
               }
             }}
             className={cn(
-              "w-full flex items-center gap-2 px-2 py-1.5 text-sm text-ide-text-secondary hover:bg-ide-hover transition-colors",
-              "focus:outline-none focus:bg-ide-hover"
+              "w-full flex items-center gap-2 px-2 py-1.5 text-sm text-ide-text-secondary rounded-md transition-colors duration-200",
+              "hover:bg-ide-hover/80 hover:text-ide-text-primary",
+              "focus:outline-none"
             )}
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
           >
@@ -101,10 +106,10 @@ function FileTreeItem({
             ) : (
               <ChevronRight className="w-3.5 h-3.5 shrink-0" />
             )}
-            <img 
-              src={getFolderIconUrl(item.name, isExpanded)} 
-              alt={item.name} 
-              className="w-4 h-4 shrink-0" 
+            <img
+              src={getFolderIconUrl(item.name, isExpanded)}
+              alt={item.name}
+              className="w-4 h-4 shrink-0"
             />
             <span className="truncate">{item.name}</span>
           </button>
@@ -154,11 +159,11 @@ function FileTreeItem({
       <button
         onClick={() => onFileSelect(item)}
         className={cn(
-          "w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-colors",
+          "w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-all duration-200 border-l-[3px] rounded-r-md",
           "focus:outline-none",
           isActive
-            ? "bg-ide-active text-ide-text-primary"
-            : "text-ide-text-secondary hover:bg-ide-hover hover:text-ide-text-primary"
+            ? "bg-ide-active/50 text-ide-text-primary border-ide-accent shadow-[inset_0_0_0_1px_hsl(var(--ide-border))]"
+            : "text-ide-text-secondary border-transparent hover:bg-ide-hover/80 hover:text-ide-text-primary"
         )}
         style={{ paddingLeft: `${depth * 12 + 24}px` }}
       >
@@ -187,7 +192,7 @@ export default function Sidebar({
   onTabChange,
   rootPath,
 }: SidebarProps) {
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["src", "components"]));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((prev) => {
@@ -202,28 +207,66 @@ export default function Sidebar({
   };
 
   const { settings, setIsSettingsOpen, setSettingsTab } = useSettings();
+  const { dispatchCommand } = useIdeCommand();
   const t = (key: string) => getTranslation(settings.language, key);
 
   const activityBarItems = [
     { id: "explorer" as SidebarTab, icon: <Folder className="w-5 h-5" />, label: "sidebar.explorer" },
+    { id: "search" as SidebarTab, icon: <Search className="w-5 h-5" />, label: "sidebar.search" },
     { id: "git" as SidebarTab, icon: <GitBranch className="w-5 h-5" />, label: "sidebar.scm" },
     { id: "debug" as SidebarTab, icon: <Bug className="w-5 h-5" />, label: "sidebar.debug" },
     { id: "extensions" as SidebarTab, icon: <Puzzle className="w-5 h-5" />, label: "sidebar.extensions" },
+    { id: "ai" as SidebarTab, icon: <Sparkles className="w-5 h-5" />, label: "sidebar.ai" },
   ];
 
   const renderContent = () => {
     switch (activeTab) {
+      case "search":
+        return <SearchView rootPath={rootPath} onFileSelect={onFileSelect} />;
       case "git":
         return <SourceControlView rootPath={rootPath} />;
       case "debug":
         return <DebugView rootPath={rootPath} />;
+      case "ai":
+        return (
+          <div className="flex flex-col h-full min-h-0">
+            <div className="h-10 px-4 flex items-center border-b border-ide-border/80 shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ide-text-secondary select-none">
+                {t("sidebar.ai")}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 custom-scrollbar">
+              <div className="rounded-xl border border-violet-500/25 bg-gradient-to-br from-violet-950/40 via-ide-panel to-ide-sidebar p-4 shadow-[0_0_40px_-12px_hsl(258_90%_50%/0.45)]">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/30 flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-violet-300" />
+                  </div>
+                  <span className="text-xs font-semibold text-ide-text-primary tracking-tight">AI Assistant</span>
+                </div>
+                <p className="text-[11px] text-ide-text-secondary leading-relaxed mb-4">
+                  Inline completions, chat, and apply-to-file actions. Open the panel to work with your codebase.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => dispatchCommand("view.toggleAiChat")}
+                  className="w-full h-9 text-xs font-medium rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-900/30 border border-white/10 transition-all duration-200"
+                >
+                  Open AI chat
+                </Button>
+              </div>
+              <p className="text-[10px] text-ide-text-secondary/80 leading-relaxed">
+                Tip: select code and use <span className="text-ide-text-primary font-medium">Explain / Refactor</span> from the floating menu.
+              </p>
+            </div>
+          </div>
+        );
       case "explorer":
       default:
         return (
           <>
             {/* Header */}
-            <div className="h-10 px-4 flex items-center justify-between border-b border-ide-border">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-ide-text-secondary select-none">
+            <div className="h-10 px-4 flex items-center justify-between border-b border-ide-border/50">
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ide-text-secondary select-none">
                 {t("sidebar.explorer")}
               </span>
               <div className="flex items-center gap-1">
@@ -231,7 +274,7 @@ export default function Sidebar({
                   variant="ghost"
                   size="icon"
                   onClick={() => onNewFile("root")}
-                  className="w-6 h-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover"
+                  className="w-6 h-6 text-ide-text-secondary hover:text-ide-text-primary hover:bg-white/5 transition-colors"
                   title={t("menu.file.newFile")}
                 >
                   <Plus className="w-4 h-4" />
@@ -271,10 +314,14 @@ export default function Sidebar({
   };
 
   return (
-    <div className="flex h-full shrink-0 border-r border-ide-border relative overflow-hidden">
+    <div className="flex h-full shrink-0 border-r border-ide-border relative overflow-hidden bg-ide-bg">
       {/* Activity Bar */}
       {settings.layoutActivityBarVisible && (
-        <aside className="w-12 bg-[#0d0f17] border-r border-ide-border flex flex-col items-center py-4 gap-4 shrink-0 z-20">
+        <aside className="w-12 ide-activity-bar flex flex-col items-center py-3 gap-1 shrink-0 z-20 relative">
+          {/* Subtle branding text */}
+          <div className="absolute top-4 w-full flex justify-center opacity-30 select-none pointer-events-none mb-4 -rotate-90 origin-center whitespace-nowrap text-[10px] text-white">
+          </div>
+          <div className="h-4"></div> {/* spacer for branding */}
           {activityBarItems.map((item) => (
             <button
               key={item.id}
@@ -282,6 +329,16 @@ export default function Sidebar({
                 if (item.id === "extensions") {
                   setSettingsTab("extensions");
                   setIsSettingsOpen(true);
+                  return;
+                }
+                if (item.id === "ai") {
+                  dispatchCommand("view.toggleAiChat");
+                  if (activeTab === "ai" && !isCollapsed) {
+                    onToggleCollapse();
+                  } else {
+                    onTabChange("ai");
+                    if (isCollapsed) onToggleCollapse();
+                  }
                   return;
                 }
                 if (activeTab === item.id && !isCollapsed) {
@@ -292,18 +349,22 @@ export default function Sidebar({
                 }
               }}
               className={cn(
-                "p-2.5 transition-all relative group",
+                "p-2.5 transition-all duration-200 relative group rounded-lg",
                 activeTab === item.id && !isCollapsed
-                  ? "text-indigo-400"
-                  : "text-ide-text-secondary hover:text-ide-text-primary"
+                  ? "text-ide-text-primary bg-ide-active/60 shadow-[0_0_20px_-8px_hsl(var(--ide-accent-blue))]"
+                  : "text-ide-text-secondary hover:text-ide-text-primary hover:bg-ide-hover/90"
               )}
               title={getTranslation(settings.language, item.label)}
             >
-              {item.icon}
+              <div className={cn(
+                "transition-transform duration-200 group-hover:scale-105"
+              )}>
+                {item.icon}
+              </div>
               {activeTab === item.id && !isCollapsed && (
-                <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-500 rounded-r shadow-[0_0_8px_rgba(99,102,241,0.6)]" />
+                <div className="absolute left-0 top-1/4 bottom-1/4 w-[3px] bg-gradient-to-b from-ide-accent-blue to-violet-500 rounded-r-md shadow-[0_0_12px_hsl(var(--ide-accent-blue))] transition-all duration-300" />
               )}
-              <div className="absolute left-14 px-2 py-1 bg-ide-sidebar border border-ide-border text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+              <div className="absolute left-14 px-2.5 py-1.5 bg-ide-bg border border-ide-border text-[10px] font-bold uppercase tracking-wider rounded-md opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-x-[-5px] group-hover:translate-x-0 whitespace-nowrap z-50 shadow-xl">
                 {t(item.label)}
               </div>
             </button>
@@ -311,11 +372,13 @@ export default function Sidebar({
           <div className="flex-1" />
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="p-2.5 text-ide-text-secondary hover:text-ide-text-primary transition-all mb-2"
+            className="p-2.5 text-ide-text-secondary hover:text-ide-text-primary hover:bg-white/5 transition-all duration-200 mb-2 rounded-md group"
             title={t("settings.title")}
           >
-            <Settings className="w-5 h-5" />
+            <Settings className="w-5 h-5 text-ide-text-secondary transition-colors duration-200" />
           </button>
+          
+
         </aside>
       )}
 
@@ -324,8 +387,8 @@ export default function Sidebar({
         <aside
           style={{ width: settings.layoutActivityBarVisible ? width - 48 : width }}
           className={cn(
-            "bg-ide-sidebar flex flex-col grow select-none",
-            !isResizing && "transition-all duration-300"
+            "bg-ide-sidebar flex flex-col grow select-none border-r border-ide-border/80 shadow-[inset_1px_0_0_hsl(var(--ide-border))]",
+            !isResizing && "panel-transition"
           )}
         >
           {renderContent()}

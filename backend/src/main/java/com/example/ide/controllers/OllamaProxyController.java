@@ -82,7 +82,7 @@ public class OllamaProxyController {
      */
     @GetMapping("/status")
     public ResponseEntity<?> status(
-            @RequestParam(defaultValue = "http://localhost:11434") String endpoint) {
+            @RequestParam(name = "endpoint", defaultValue = "http://localhost:11434") String endpoint) {
         try {
             return executeWithFallback(endpoint, url -> restTemplate.getForEntity(url + "/api/tags", String.class));
         } catch (Exception e) {
@@ -100,7 +100,7 @@ public class OllamaProxyController {
      */
     @GetMapping("/models")
     public ResponseEntity<?> getModels(
-            @RequestParam(defaultValue = "http://localhost:11434") String endpoint) {
+            @RequestParam(name = "endpoint", defaultValue = "http://localhost:11434") String endpoint) {
         try {
             return executeWithFallback(endpoint, url -> restTemplate.getForEntity(url + "/api/tags", Map.class));
         } catch (Exception e) {
