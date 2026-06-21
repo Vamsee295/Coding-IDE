@@ -4,7 +4,6 @@
  */
 
 export const CONFIG = {
-  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api',
   TERMINAL_WS_URL: import.meta.env.VITE_TERMINAL_WS_URL || 'ws://localhost:8082',
   TERMINAL_SERVER_URL: 'http://localhost:8082',
   TERMINAL_API_URL: import.meta.env.VITE_TERMINAL_API_URL || 'http://localhost:8082',

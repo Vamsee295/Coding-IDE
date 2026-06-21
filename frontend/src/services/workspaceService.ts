@@ -2,8 +2,6 @@ import axios from "axios";
 
 import { CONFIG } from "@/react-app/lib/config";
 
-const BASE = `${CONFIG.API_BASE_URL}/workspace`;
-
 export interface WorkspaceInfo {
     path: string;
     type: "NODE" | "MAVEN" | "GRADLE" | "PYTHON" | "RUST" | "UNKNOWN";

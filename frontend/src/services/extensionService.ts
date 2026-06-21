@@ -1,4 +1,4 @@
-import { apiClient, terminalClient } from '@/services/api';
+import { terminalClient } from '@/services/api';
 import { Extension } from '@/types/extension';
 
 // Registry of dynamically injected extension commands
@@ -15,8 +15,7 @@ export function getExtensionCommands() {
 export const extensionService = {
     /** Fetch all registered native extensions */
     async getAll(): Promise<Extension[]> {
-        const response = await apiClient.get<Extension[]>('/extensions');
-        return response.data;
+        return [];
     },
 
     /** Fetch all imported VS Code extensions */
@@ -67,15 +66,13 @@ export const extensionService = {
     },
 
     /** Enable an extension by ID */
-    async enable(id: string): Promise<Extension> {
-        const response = await apiClient.post<Extension>(`/extensions/${id}/enable`);
-        return response.data;
+    async enable(id: string): Promise<Extension | null> {
+        return null;
     },
 
     /** Disable an extension by ID */
-    async disable(id: string): Promise<Extension> {
-        const response = await apiClient.post<Extension>(`/extensions/${id}/disable`);
-        return response.data;
+    async disable(id: string): Promise<Extension | null> {
+        return null;
     },
 
     /** Delete/Uninstall an imported extension */
