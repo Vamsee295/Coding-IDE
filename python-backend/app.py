@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 import os
+import requests
+import json
 from faiss_service import vector_service
 from screen_service import screen_service
 
@@ -40,6 +42,59 @@ def clear():
 def analyze_screen():
     result = screen_service.capture_screen()
     return jsonify(result)
+
+# --- AI Proxies ---
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+@app.route('/ai/models', methods=['GET'])
+def ai_models():
+    # The frontend allows overriding the endpoint via query param, fallback to default
+    endpoint = request.args.get('endpoint', OLLAMA_BASE)
+    try:
+        # Some frontend components expect the Spring Boot format, some use direct Ollama tags.
+        # Spring Boot `/api/ai/models` returns a simple string array or object list.
+        # Direct ollama /api/tags returns { "models": [ { "name": "llama3", ... } ] }
+        # We will mirror direct Ollama tags here.
+        base_url = endpoint.rstrip("/")
+        resp = requests.get(f"{base_url}/api/tags", timeout=5)
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ai/pull', methods=['POST'])
+def ai_pull():
+    data = request.json or {}
+    model_name = data.get('model')
+    endpoint = data.get('ollamaEndpoint', OLLAMA_BASE)
+    if not model_name:
+        return jsonify({"error": "Missing model"}), 400
+    try:
+        # Proxy the pull command to the specified Ollama endpoint
+        base_url = endpoint.rstrip("/")
+        resp = requests.post(f"{base_url}/api/pull", json={"name": model_name, "stream": False}, timeout=120)
+        resp.raise_for_status()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ai/stream', methods=['POST'])
+def ai_stream():
+    data = request.json or {}
+    def generate():
+        try:
+            endpoint = data.get("ollamaEndpoint", OLLAMA_BASE)
+            base_url = endpoint.rstrip("/")
+            data["stream"] = True
+            with requests.post(f"{base_url}/api/generate", json=data, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                for chunk in r.iter_content(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            yield json.dumps({"error": str(e)}).encode('utf-8')
+
+    return Response(stream_with_context(generate()), content_type='application/json')
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5001))

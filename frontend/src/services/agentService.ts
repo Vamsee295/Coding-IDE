@@ -73,7 +73,7 @@ export interface AgentRunOptions {
 
 // ─── Service ─────────────────────────────────────────────────────────────────
 
-const BACKEND_URL = CONFIG.TERMINAL_SERVER_URL || 'http://localhost:8081';
+const BACKEND_URL = CONFIG.TERMINAL_SERVER_URL;
 
 export const agentService = {
     /**

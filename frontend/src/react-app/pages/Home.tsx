@@ -14,7 +14,6 @@ import { useIdeStore } from "@/react-app/store/useIdeStore";
 import { FileItem, ChatMessage, EditorTab, AIAction, SidebarTab, Snapshot, ChatSession, PendingEditProposal } from "@/react-app/types/ide";
 import ChatHistoryModal from "@/react-app/components/ide/ChatHistoryModal";
 import ReviewBar from "@/react-app/components/ide/ReviewBar";
-import { createFile, updateFile, deleteFile } from "@/services/api";
 import { buildTreeFromFiles } from "@/utils/fileSystemHelper";
 import SearchModal from "@/react-app/components/ide/SearchModal";
 import ReplaceModal from "@/react-app/components/ide/ReplaceModal";
@@ -677,7 +676,7 @@ export default function HomePage() {
       } else {
         // [CHAT MODE] - Standard stream logic
         // Use the streaming endpoint for real-time token display
-        const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
+        const response = await fetch(`${CONFIG.PYTHON_API_URL}/ai/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestPayload),
@@ -1047,11 +1046,6 @@ export default function HomePage() {
       } catch (e) {
         console.error("Failed to save file to server", e);
       }
-    } else if (activeProjectId) {
-      try {
-        await updateFile(activeTab.id, { content: contentToSave });
-        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, isDirty: false } : t));
-      } catch (e) { }
     }
   }, [tabs, activeProjectId]);
 
@@ -1935,11 +1929,6 @@ Output ONLY the JSON action block using applyDiff to patch the file at ${activeT
           } catch (e) {
             console.error("Auto-save failed for", tab.name, e);
           }
-        } else if (activeProjectId) {
-          try {
-            await updateFile(tab.id, { content: tab.content });
-            setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, isDirty: false } : t));
-          } catch (e) { }
         }
       });
     }, 3000); // Check every 3 seconds
