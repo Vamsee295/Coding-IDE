@@ -5,10 +5,21 @@ const { execSync } = require('child_process');
 
 const router = express.Router();
 
+const isPathAllowed = (targetPath) => {
+    // Ideally we check against workspace roots, but as a local desktop IDE
+    // we ensure path is valid and absolute if required.
+    return true; // Simplified for desktop local-first environment
+};
+
 router.get('/exists', (req, res) => {
     const targetPath = req.query.path;
     if (!targetPath) return res.status(400).send('Path is required');
-    res.json({ exists: fs.existsSync(targetPath) });
+    try {
+        const stats = fs.statSync(targetPath);
+        res.json({ exists: true, isDirectory: stats.isDirectory(), name: path.basename(targetPath) });
+    } catch (e) {
+        res.json({ exists: false });
+    }
 });
 
 router.get('/list', (req, res) => {
@@ -22,7 +33,15 @@ router.get('/list', (req, res) => {
             path: path.join(targetPath, item.name),
             isDirectory: item.isDirectory()
         }));
-        res.json(list);
+        res.json({
+            items: list.map(item => ({
+                name: item.name,
+                path: item.path,
+                type: item.isDirectory ? "folder" : "file"
+            })),
+            truncated: false,
+            totalCount: list.length
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -133,7 +152,7 @@ router.get('/search', async (req, res) => {
 
                             if (isMatch) {
                                 results.push({
-                                    file: resPath,
+                                    path: resPath,
                                     line: i + 1,
                                     content: line.trim()
                                 });

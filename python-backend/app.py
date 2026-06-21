@@ -55,7 +55,8 @@ def ai_models():
         # Spring Boot `/api/ai/models` returns a simple string array or object list.
         # Direct ollama /api/tags returns { "models": [ { "name": "llama3", ... } ] }
         # We will mirror direct Ollama tags here.
-        resp = requests.get(f"{endpoint.rstrip('/')}/api/tags", timeout=5)
+        base_url = endpoint.rstrip("/")
+        resp = requests.get(f"{base_url}/api/tags", timeout=5)
         resp.raise_for_status()
         return jsonify(resp.json())
     except Exception as e:
@@ -70,7 +71,8 @@ def ai_pull():
         return jsonify({"error": "Missing model"}), 400
     try:
         # Proxy the pull command to the specified Ollama endpoint
-        resp = requests.post(f"{endpoint.rstrip('/')}/api/pull", json={"name": model_name}, timeout=120)
+        base_url = endpoint.rstrip("/")
+        resp = requests.post(f"{base_url}/api/pull", json={"name": model_name, "stream": False}, timeout=120)
         resp.raise_for_status()
         return jsonify({"status": "success"})
     except Exception as e:
@@ -81,7 +83,10 @@ def ai_stream():
     data = request.json or {}
     def generate():
         try:
-            with requests.post(f"{OLLAMA_BASE.rstrip('/')}/api/generate", json=data, stream=True, timeout=120) as r:
+            endpoint = data.get("ollamaEndpoint", OLLAMA_BASE)
+            base_url = endpoint.rstrip("/")
+            data["stream"] = True
+            with requests.post(f"{base_url}/api/generate", json=data, stream=True, timeout=120) as r:
                 r.raise_for_status()
                 for chunk in r.iter_content(chunk_size=1024):
                     if chunk:
