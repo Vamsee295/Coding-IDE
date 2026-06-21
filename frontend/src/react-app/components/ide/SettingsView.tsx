@@ -137,7 +137,7 @@ export default function SettingsView() {
         setModelFetchError(null);
         try {
             // Updated to use centralized CONFIG for the Java backend
-            const res = await fetch(`${CONFIG.API_BASE_URL}/ai/models?endpoint=${encodeURIComponent(settings.ollamaEndpoint)}`);
+            const res = await fetch(`${CONFIG.PYTHON_API_URL}/ai/models?endpoint=${encodeURIComponent(settings.ollamaEndpoint)}`);
             if (!res.ok) throw new Error("Failed to fetch models");
 
             const data = await res.json();
@@ -169,7 +169,7 @@ export default function SettingsView() {
 
         setIsPulling(true);
         try {
-            const res = await fetch(`${CONFIG.API_BASE_URL}/ai/pull`, {
+            const res = await fetch(`${CONFIG.PYTHON_API_URL}/ai/pull`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

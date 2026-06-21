@@ -677,7 +677,7 @@ export default function HomePage() {
       } else {
         // [CHAT MODE] - Standard stream logic
         // Use the streaming endpoint for real-time token display
-        const response = await fetch(`${CONFIG.API_BASE_URL}/ai/stream`, {
+        const response = await fetch(`${CONFIG.PYTHON_API_URL}/ai/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestPayload),

@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const apiRoutes = require('./routes/api');
+const fsRoutes = require('./routes/fs');
 const setupSockets = require('./sockets/socketManager');
 
 // ── APP SETUP ───────────────────────────────────────────────────────────
@@ -15,6 +16,7 @@ app.use(express.json());
 // Mount all modularized endpoints directly at root for compatibility 
 // with the existing frontend URLs since they aren't grouped under /api
 app.use('/', apiRoutes);
+app.use('/fs', fsRoutes);
 
 // ── SERVER & SOCKET INSTANTIATION ───────────────────────────────────────
 const server = http.createServer(app);

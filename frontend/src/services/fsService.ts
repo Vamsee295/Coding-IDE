@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import { CONFIG } from '@/react-app/lib/config';
 
-const API_BASE_URL = `${CONFIG.API_BASE_URL}/fs`;
+const API_BASE_URL = `${CONFIG.TERMINAL_API_URL}/fs`;
 
 export interface FileSystemItem {
     name: string;
