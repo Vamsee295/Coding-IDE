@@ -26,8 +26,6 @@ import CommandPalette from "@/react-app/components/ide/CommandPalette";
 import DiffPreviewModal from "@/react-app/components/ide/DiffPreviewModal";
 import { debugService } from "@/services/debugService";
 import { fsService } from "@/services/fsService";
-import { eventService } from "@/services/eventService";
-import { commandService } from "@/services/commandService";
 import { openWorkspace as openBackendWorkspace, reindexWorkspace, searchContext, searchVectorContext, analyzeScreen } from "@/services/workspaceService";
 import { cn } from "@/react-app/lib/utils";
 import { aiOrchestrator } from "@/services/aiOrchestrator";
@@ -1026,18 +1024,6 @@ export default function HomePage() {
     }
 
     let contentToSave = activeTab.content;
-    try {
-      const res = await eventService.fileSave({
-        path: activeTab.path ?? "",
-        name: activeTab.name,
-        language: getLanguage(activeTab.name),
-        content: activeTab.content,
-      });
-      contentToSave = res.content || activeTab.content;
-      if (contentToSave !== activeTab.content) {
-        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, content: contentToSave } : t));
-      }
-    } catch (_) { }
 
     if (activeTab.path) {
       try {
@@ -1104,11 +1090,7 @@ export default function HomePage() {
     // Sync selection for AI context
     selectionRef.current = payload?.selectedText || "";
 
-    if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
-    selectionDebounceRef.current = setTimeout(() => {
-      eventService.selectionChange(payload).catch(() => { });
-      selectionDebounceRef.current = null;
-    }, 300);
+    // Removed unused backend sync
   }, []);
 
   const confirmApplyAction = useCallback(async (editedContent?: string) => {
@@ -1686,31 +1668,11 @@ export default function HomePage() {
   useIdeCommandListener("file.save", handleSave);
   useIdeCommandListener("terminal.runActiveFile", async () => {
     const activeTab = tabs.find(t => t.isActive);
-    if (!activeTab) return;
-    try {
-      const output = await commandService.runFile({
-        path: activeTab.path,
-        content: activeTab.content,
-        language: getLanguage(activeTab.name),
-      });
-      if (output) alert("Run output:\n\n" + output);
-    } catch (e: unknown) {
-      alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
-    }
+    alert("Running files directly is not supported in this architecture. Please use the terminal.");
   });
   useIdeCommandListener("run.runWithoutDebugging", async () => {
     const activeTab = tabs.find(t => t.isActive);
-    if (!activeTab) return;
-    try {
-      const output = await commandService.runFile({
-        path: activeTab.path,
-        content: activeTab.content,
-        language: getLanguage(activeTab.name),
-      });
-      if (output) alert("Run output:\n\n" + output);
-    } catch (e: unknown) {
-      alert("Run failed: " + (e instanceof Error ? e.message : "Check backend and Code Runner extension."));
-    }
+    alert("Running files directly is not supported in this architecture. Please use the terminal.");
   });
   useIdeCommandListener("ai.inlineEdit", async (payload: { prompt: string, selectedText: string }) => {
     const activeTab = tabs.find(t => t.isActive);
