@@ -97,6 +97,7 @@ export const agentService = {
                     activeFilePath: activeFilePath || '',
                     activeFileContent: activeFileContent || '',
                     selection: selection || '',
+                    pythonEndpoint: CONFIG.PYTHON_API_URL,
                 }),
                 signal,
             });

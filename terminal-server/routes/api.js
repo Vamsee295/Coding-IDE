@@ -743,6 +743,7 @@ router.post('/ai/debug/analyze', async (req, res) => {
     if (!errorText) return res.status(400).json({ error: 'errorText required' });
 
     const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const MODEL = model || 'qwen2.5-coder:7b';
 
     const prompt = `You are an expert AI Debugger. Analyze the following terminal error and provide a fix.
@@ -767,10 +768,10 @@ You MUST respond ONLY with a JSON block in this exact format. Do not include any
 `;
 
     try {
-        const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+        const ollamaRes = await fetch(`${PYTHON_URL}/ai/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: MODEL, prompt, stream: false })
+            body: JSON.stringify({ model: MODEL, prompt, stream: false, ollamaEndpoint: OLLAMA_URL })
         });
 
         if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
@@ -803,6 +804,7 @@ router.post('/ai/git/intelligence', async (req, res) => {
     if (!action || !diffs) return res.status(400).json({ error: 'action and diffs required' });
 
     const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const MODEL = model || 'qwen2.5-coder:7b';
 
     let prompt = "";
@@ -852,10 +854,10 @@ ${diffs}`;
     }
 
     try {
-        const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+        const ollamaRes = await fetch(`${PYTHON_URL}/ai/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: MODEL, prompt, stream: false })
+            body: JSON.stringify({ model: MODEL, prompt, stream: false, ollamaEndpoint: OLLAMA_URL })
         });
 
         if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
@@ -874,6 +876,7 @@ router.post('/ai/agent', async (req, res) => {
     if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
     const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const MODEL = model || 'qwen2.5-coder:7b';
     const MAX_ITER = Math.min(parseInt(maxIterations || '8'), 12);
 

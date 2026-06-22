@@ -175,7 +175,7 @@ export default function HomePage() {
         const res = await fetch(CONFIG.TERMINAL_SERVER_URL + '/api/ai/debug/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ errorText, fileContext, model: settings.aiModel })
+            body: JSON.stringify({ errorText, fileContext, model: settings.aiModel, pythonEndpoint: CONFIG.PYTHON_API_URL })
         });
         const data = await res.json();
         if (data && !data.error) {
@@ -303,6 +303,26 @@ export default function HomePage() {
     window.addEventListener('ai:gitIntelligenceResult', handleGitResult);
     return () => window.removeEventListener('ai:gitIntelligenceResult', handleGitResult);
   }, [setMessages, setAiChatVisible, setSidebarTab]);
+
+  const [serviceStatus, setServiceStatus] = useState({ node: false, python: false, ollama: false });
+  const [ollamaMissing, setOllamaMissing] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    const checkHealth = async () => {
+        try {
+            const nodeRes = await fetch(CONFIG.TERMINAL_SERVER_URL + '/health').catch(() => null);
+            const pyRes = await fetch(CONFIG.PYTHON_API_URL + '/health').catch(() => null);
+            const oRes = await fetch(settings.ollamaEndpoint).catch(() => null);
+            if (mounted) {
+                setServiceStatus({ node: !!nodeRes?.ok, python: !!pyRes?.ok, ollama: !!oRes?.ok });
+                setOllamaMissing(!oRes?.ok);
+            }
+        } catch(e) {}
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [settings.ollamaEndpoint]);
 
   const [pendingReview, setPendingReview] = useState(false);
   const [reviewFiles] = useState<any[]>([]);
@@ -2094,10 +2114,7 @@ Output ONLY the JSON action block using applyDiff to patch the file at ${activeT
                                      onAccept: () => {
                                          fsService.writeFile(resolvedPath, patched).then(() => {
                                              setFiles(prev => {
-                                                const newFiles = [...prev];
-                                                const f = newFiles.find(f => f.path === resolvedPath);
-                                                if(f) f.content = patched;
-                                                return newFiles;
+                                                return prev.map(f => f.path === resolvedPath ? { ...f, content: patched } : f);
                                              });
                                              setTabs(prev => prev.map(t => t.path === resolvedPath ? { ...t, content: patched } : t));
                                          }).catch(console.error);
@@ -2119,6 +2136,58 @@ Output ONLY the JSON action block using applyDiff to patch the file at ${activeT
                   }} />
               </div>
             )}
+
+            {/* First Launch Setup Wizard */}
+            {(!activeProjectPath || ollamaMissing || (!serviceStatus.node || !serviceStatus.python)) && !showWelcomePage && (
+                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
+                    <div className="bg-ide-sidebar border border-ide-border rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in-95 duration-300">
+                        <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                             Welcome to StackFlow
+                        </h2>
+                        <p className="text-sm text-ide-text-secondary mb-6">Let's get your local-first AI IDE set up and ready to go.</p>
+
+                        <div className="space-y-4 mb-8">
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div>
+                                    <h4 className="text-sm font-semibold text-white">Backend Services</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{serviceStatus.node && serviceStatus.python ? 'Running correctly.' : 'Initializing...'}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-semibold text-white">Ollama Engine</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{!ollamaMissing ? 'Connected.' : 'Not detected. Please install Ollama.'}</p>
+                                </div>
+                                {ollamaMissing && (
+                                    <a href="https://ollama.com" target="_blank" rel="noreferrer" className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-colors">Install</a>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-semibold text-white">Workspace</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{activeProjectPath ? activeProjectPath : 'No folder selected.'}</p>
+                                </div>
+                                {!activeProjectPath && (
+                                    <button onClick={() => dispatchCommand('file.openFolder')} className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-colors">Select Folder</button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setShowWelcomePage(true)}
+                                disabled={false}
+                                className="bg-white text-black font-semibold text-sm px-6 py-2 rounded-lg disabled:opacity-50 transition-all hover:bg-gray-200"
+                            >
+                                Continue to IDE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
 <Editor
               tabs={tabs}
               onTabSelect={handleTabSelect}

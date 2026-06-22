@@ -2,8 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@/react-app/index.css";
 import App from "@/react-app/App.tsx";
+import { initializeDynamicConfig } from "@/react-app/lib/config";
 import ErrorBoundary from "@/react-app/components/shared/ErrorBoundary";
 
+initializeDynamicConfig().finally(() => {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
@@ -11,3 +13,4 @@ createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </StrictMode>
 );
+});

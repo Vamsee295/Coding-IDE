@@ -116,7 +116,7 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
             const response = await fetch(CONFIG.TERMINAL_SERVER_URL + '/api/ai/git/intelligence', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: actionType, diffs: diffText, model: settings.aiModel, ollamaEndpoint: settings.ollamaEndpoint })
+                body: JSON.stringify({ action: actionType, diffs: diffText, model: settings.aiModel, ollamaEndpoint: settings.ollamaEndpoint, pythonEndpoint: CONFIG.PYTHON_API_URL })
             });
             const data = await response.json();
             if (data && data.result) {
