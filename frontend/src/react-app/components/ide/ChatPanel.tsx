@@ -262,7 +262,32 @@ export default function ChatPanel({
         return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     };
 
-    return (
+
+    const [agentApprovals, setAgentApprovals] = useState<{ id: string, action: any }[]>([]);
+    const [resolvedApprovals, setResolvedApprovals] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (!agentEvents) return;
+        const newApprovals = agentEvents
+            .filter(e => e.type === 'approval_request' && !resolvedApprovals.has((e as any).id))
+            .map((e: any) => ({ id: e.id, action: e.action }));
+        setAgentApprovals(newApprovals);
+    }, [agentEvents, resolvedApprovals]);
+
+    const handleApproveAction = async (id: string, approved: boolean) => {
+        try {
+            await fetch(`${CONFIG.TERMINAL_SERVER_URL}/api/ai/agent/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, approved })
+            });
+            setResolvedApprovals(prev => new Set(prev).add(id));
+        } catch (e) {
+            console.error('Failed to submit approval', e);
+        }
+    };
+
+return (
         <aside
             style={{ width }}
             className={cn(
@@ -333,6 +358,30 @@ export default function ChatPanel({
                     </Button>
                 </div>
             </div>
+
+                {agentApprovals.length > 0 && (
+                    <div className="absolute top-0 left-0 right-0 z-10 p-2 space-y-2 pointer-events-none">
+                        {agentApprovals.map(approval => (
+                            <div key={approval.id} className="pointer-events-auto bg-ide-sidebar border border-orange-500/50 rounded-lg shadow-lg p-3 relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />
+                                <div className="pl-2">
+                                    <h4 className="text-xs font-bold text-orange-400 mb-1">Approval Required</h4>
+                                    <div className="text-[11px] text-ide-text-primary mb-2">
+                                        Action: <span className="font-mono text-indigo-400">{approval.action.type}</span>
+                                        {approval.action.path && <span><br/>Path: <span className="font-mono">{approval.action.path}</span></span>}
+                                        {approval.action.command && <span><br/>Command: <span className="font-mono">{approval.action.command}</span></span>}
+                                        {approval.action.reason && <span><br/><br/>Reason: <span className="italic text-ide-text-secondary">{approval.action.reason || 'Dangerous action'}</span></span>}
+                                    </div>
+                                    <div className="flex gap-2 justify-end">
+                                        <Button size="xs" variant="ghost" onClick={() => handleApproveAction(approval.id, false)} className="text-red-400 hover:bg-red-400/10">Reject</Button>
+                                        <Button size="xs" onClick={() => handleApproveAction(approval.id, true)} className="bg-orange-500 hover:bg-orange-600 text-white">Approve</Button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
 
             {/* Quick Actions */}
             {aiEnabled && (

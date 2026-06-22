@@ -648,7 +648,7 @@ export default function HomePage() {
                     const evt = JSON.parse(dataStr);
                     
                     if (evt.type === "done") {
-                      setAgentEvents(prev => [...prev, { type: "done", success: true, iterations: evt.iterations || 1 }]);
+                      setAgentEvents(prev => [...prev, { type: "done", success: true, output: "", iterations: evt.iterations || 1 }]);
                       setMessages(prev => prev.map(m => m.id === aiMsgId ? {
                         ...m,
                         content: evt.output || "Agent finished.",

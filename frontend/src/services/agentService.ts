@@ -28,6 +28,7 @@ export interface AgentAction       { type: 'action';      tool: string; label: s
 export interface AgentResult       { type: 'result';      success: boolean; tool: string; result: string; }
 export interface AgentDone         { type: 'done';        success: boolean; output: string; iterations: number; }
 export interface AgentError        { type: 'error';       message: string; }
+export interface AgentApprovalRequest{ type: 'approval_request'; action: any; id: string; }
 
 // Legacy types
 export interface AgentToolCall     { type: 'tool_call';   action: { type: string; path?: string; command?: string }; }
@@ -38,7 +39,7 @@ export interface AgentResponse     { type: 'response';    content: string; }
 
 export type AgentEvent =
     | AgentThought | AgentStep | AgentAction | AgentResult | AgentDone | AgentError
-    | AgentToolCall | AgentToolResult | AgentStepStart | AgentToken | AgentResponse;
+    | AgentToolCall | AgentToolResult | AgentStepStart | AgentToken | AgentResponse | AgentApprovalRequest;
 
 // ─── Callbacks ───────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ export interface AgentCallbacks {
     onAction?:     (e: AgentAction)     => void;
     onResult?:     (e: AgentResult)     => void;
     onDone?:       (e: AgentDone)       => void;
+    onApprovalRequest?: (e: AgentApprovalRequest) => void;
     onError?:      (e: AgentError)      => void;
     // Legacy
     onToolCall?:   (e: AgentToolCall)   => void;
@@ -189,6 +191,7 @@ function dispatchEvent(event: AgentEvent, callbacks: AgentCallbacks) {
         case 'action':      callbacks.onAction?.(event);     break;
         case 'result':      callbacks.onResult?.(event);     break;
         case 'done':        callbacks.onDone?.(event);       break;
+        case 'approval_request': callbacks.onApprovalRequest?.(event); break;
         case 'error':       callbacks.onError?.(event);      break;
         case 'tool_call':   callbacks.onToolCall?.(event);   break;
         case 'tool_result': callbacks.onToolResult?.(event); break;

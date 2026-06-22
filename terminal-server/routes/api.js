@@ -696,6 +696,47 @@ async function executeTool(action, workspaceRoot, cwd) {
     }
 }
 
+
+const { randomUUID: uuidv4 } = require('crypto');
+
+const pendingApprovals = new Map();
+
+router.post('/ai/agent/approve', (req, res) => {
+    const { id, approved } = req.body;
+    if (pendingApprovals.has(id)) {
+        pendingApprovals.get(id)(approved);
+        pendingApprovals.delete(id);
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: 'Approval not found or already processed' });
+    }
+});
+
+// Periodic cleanup to prevent memory leaks
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, resolver] of pendingApprovals.entries()) {
+        if (now - resolver.timestamp > 5 * 60 * 1000) { // 5 minutes timeout
+            resolver.resolve(false);
+            pendingApprovals.delete(id);
+        }
+    }
+}, 60000);
+
+const AUTO_APPROVED = new Set([
+    'read_file', 'readFile',
+    'list_directory', 'listFiles', 'list_files',
+    'search_workspace', 'search',
+    'get_terminal_logs',
+    'retrieve_rag_context',
+    'git_status',
+    'git_diff'
+]);
+
+function requiresApproval(actionType) {
+    return !AUTO_APPROVED.has(actionType);
+}
+
 router.post('/ai/agent', async (req, res) => {
     const { prompt, projectContext, workspaceRoot, ollamaEndpoint, model, maxIterations } = req.body;
 
@@ -830,6 +871,24 @@ If you are completely finished with the user's task, include an action with type
                     emit({ type: 'response', content: finalMsg || fullResponse });
                     emit({ type: 'done', iterations: iteration + 1 });
                     return res.end();
+                }
+
+                if (requiresApproval(action.type)) {
+                    const actionId = uuidv4();
+                    emit({ type: 'approval_request', action, id: actionId });
+
+                    const isApproved = await new Promise(resolve => {
+                        const resolver = (val) => resolve(val);
+                        resolver.resolve = resolve;
+                        resolver.timestamp = Date.now();
+                        pendingApprovals.set(actionId, resolver);
+                    });
+
+                    if (!isApproved) {
+                        emit({ type: 'tool_result', action, result: "User rejected this action.", success: false });
+                        toolResultsBlock += `[${action.type} REJECTED BY USER]\n\n`;
+                        continue;
+                    }
                 }
 
                 emit({ type: 'tool_call', action });
