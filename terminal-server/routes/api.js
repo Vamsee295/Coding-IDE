@@ -737,6 +737,66 @@ function requiresApproval(actionType) {
     return !AUTO_APPROVED.has(actionType);
 }
 
+
+router.post('/ai/debug/analyze', async (req, res) => {
+    const { errorText, fileContext, model, ollamaEndpoint } = req.body;
+    if (!errorText) return res.status(400).json({ error: 'errorText required' });
+
+    const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const MODEL = model || 'qwen2.5-coder:7b';
+
+    const prompt = `You are an expert AI Debugger. Analyze the following terminal error and provide a fix.
+
+[Terminal Error / Stack Trace]
+${errorText}
+
+[Relevant File Context]
+${fileContext || "No specific file provided. Infer from the stack trace."}
+
+You MUST respond ONLY with a JSON block in this exact format. Do not include any other text.
+\`\`\`json
+{
+  "summary": "Short 1-sentence summary of the error",
+  "rootCause": "Explanation of why this error is happening based on the context",
+  "suggestedFix": "Short description of how to fix it",
+  "confidence": 95,
+  "patch": "--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old line\n+new line",
+  "fileToPatch": "path/to/file.ts"
+}
+\`\`\`
+`;
+
+    try {
+        const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: MODEL, prompt, stream: false })
+        });
+
+        if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
+
+        const data = await ollamaRes.json();
+
+        // Parse the JSON block
+        const jsonMatch = /\`\`\`json\s*([\s\S]*?)\s*\`\`\`/g.exec(data.response);
+        let parsed = null;
+        if (jsonMatch) {
+            parsed = JSON.parse(jsonMatch[1]);
+        } else if (data.response.trim().startsWith('{')) {
+            parsed = JSON.parse(data.response.trim());
+        }
+
+        if (parsed) {
+            res.json(parsed);
+        } else {
+            res.status(500).json({ error: 'Failed to parse AI response into JSON', raw: data.response });
+        }
+    } catch (e) {
+        console.error("Debug Analyze Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.post('/ai/agent', async (req, res) => {
     const { prompt, projectContext, workspaceRoot, ollamaEndpoint, model, maxIterations } = req.body;
 

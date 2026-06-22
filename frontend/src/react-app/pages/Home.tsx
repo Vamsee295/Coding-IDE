@@ -22,6 +22,7 @@ import WelcomePage from "@/react-app/components/ide/WelcomePage";
 import ReleaseNotesPage from "@/react-app/components/ide/ReleaseNotesPage";
 import KeyboardShortcutsModal from "@/react-app/components/ide/KeyboardShortcutsModal";
 import DebugToolbar from "@/react-app/components/ide/DebugToolbar";
+import { DebuggerCard } from "@/react-app/components/ide/DebuggerCard";
 import CommandPalette from "@/react-app/components/ide/CommandPalette";
 import DiffPreviewModal from "@/react-app/components/ide/DiffPreviewModal";
 import { debugService } from "@/services/debugService";
@@ -125,6 +126,8 @@ export default function HomePage() {
 
   const [debugActive, setDebugActive] = useState(false);
   const [debugPaused, setDebugPaused] = useState(false);
+  const [debuggerAnalysis, setDebuggerAnalysis] = useState<any>(null);
+  const [isApplyingFix, setIsApplyingFix] = useState(false);
   const [statusBarLine, setStatusBarLine] = useState(1);
   const [statusBarCol, setStatusBarCol] = useState(1);
   const [isBackendConnected, setIsBackendConnected] = useState(true);
@@ -136,6 +139,60 @@ export default function HomePage() {
   const selectionRef = useRef<string>("");
 
   // Check backend connectivity
+
+  useEffect(() => {
+    const handleTriggerDebug = async () => {
+      let errorText = "";
+      if (terminalRef.current && typeof terminalRef.current.getOutput === 'function') {
+         const out = terminalRef.current.getOutput();
+         // Grab the last 50 lines to catch the error
+         errorText = out.split('\n').slice(-50).join('\n');
+      }
+      if (!errorText.trim()) {
+         errorText = "No terminal output found to analyze.";
+      }
+
+
+        let fileContext = "";
+        const actTab = tabs.find(t => t.isActive);
+        if (actTab && actTab.content) {
+            fileContext += `Active File: ${actTab.name}\nPath: ${actTab.path}\n\n${actTab.content}\n\n`;
+        }
+
+        try {
+            // Retrieve RAG context to help the debugger
+            const ragResults = await searchVectorContext(errorText, 3);
+            if (ragResults && ragResults.length > 0) {
+                fileContext += "--- Relevant Workspace Context ---\n";
+                ragResults.forEach((res: any) => {
+                    fileContext += `File: ${res.path}\nContent:\n${res.content}\n\n`;
+                });
+            }
+        } catch(e) { console.error("RAG error", e); }
+
+
+      try {
+        const res = await fetch(CONFIG.TERMINAL_SERVER_URL + '/api/ai/debug/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ errorText, fileContext, model: settings.aiModel })
+        });
+        const data = await res.json();
+        if (data && !data.error) {
+            setDebuggerAnalysis(data);
+        } else {
+            alert(data.error || "Failed to analyze error");
+        }
+      } catch (e: any) {
+        console.error(e);
+        alert("Failed to reach debug analyzer");
+      }
+    };
+
+    window.addEventListener('ai:triggerDebug', handleTriggerDebug);
+    return () => window.removeEventListener('ai:triggerDebug', handleTriggerDebug);
+  }, [tabs, settings.aiModel]);
+
   useEffect(() => {
     const check = () => fetch(`${CONFIG.TERMINAL_API_URL}/health`).then(() => setIsBackendConnected(true)).catch(() => setIsBackendConnected(false));
     check();
@@ -1399,7 +1456,10 @@ export default function HomePage() {
       if (ev.type === 'stopped') setDebugPaused(true);
       if (ev.type === 'continued') setDebugPaused(false);
       if (ev.type === 'terminated') { setDebugActive(false); setDebugPaused(false); unsub(); }
-      if (ev.type === 'error') { alert(`Debug error: ${ev.message}`); setDebugActive(false); unsub(); }
+      if (ev.type === 'error') {
+        window.dispatchEvent(new CustomEvent('ai:triggerDebug'));
+        setDebugActive(false); unsub();
+      }
     });
     await debugService.launch({ language: lang, filePath: activeTab.path });
     toggleSidebarTab("debug");
@@ -1984,7 +2044,64 @@ Output ONLY the JSON action block using applyDiff to patch the file at ${activeT
                 <DebugView rootPath={activeProjectPath} />
               </div>
             )}
-            <Editor
+
+            {debuggerAnalysis && (
+              <div className="absolute top-4 right-4 z-[60] pointer-events-none">
+                <DebuggerCard
+                  analysis={debuggerAnalysis}
+                  isApplying={isApplyingFix}
+                  onDismiss={() => setDebuggerAnalysis(null)}
+                  onApply={async (analysis: any) => {
+                      if (analysis.patch && analysis.fileToPatch) {
+                          try {
+                             let resolvedPath = analysis.fileToPatch;
+                             if (activeProjectPath && !resolvedPath.startsWith('/') && !/^[a-zA-Z]:\\/.test(resolvedPath)) {
+                                resolvedPath = `${activeProjectPath}/${resolvedPath}`.replace(/\/\//g, '/');
+                             }
+                             if (resolvedPath.includes('../')) {
+                                alert("Invalid path proposed by AI.");
+                                return;
+                             }
+
+                             const orig = await fsService.readFile(resolvedPath);
+                             const patched = applyPatch(orig, analysis.patch);
+
+                             if (patched && typeof patched === 'string') {
+                                 setDiffPreviewState({
+                                     isOpen: true,
+                                     targetPath: resolvedPath,
+                                     actionType: "apply_diff",
+                                     originalContent: orig,
+                                     content: patched,
+                                     onAccept: () => {
+                                         fsService.writeFile(resolvedPath, patched).then(() => {
+                                             setFiles(prev => {
+                                                const newFiles = [...prev];
+                                                const f = newFiles.find(f => f.path === resolvedPath);
+                                                if(f) f.content = patched;
+                                                return newFiles;
+                                             });
+                                             setTabs(prev => prev.map(t => t.path === resolvedPath ? { ...t, content: patched } : t));
+                                         }).catch(console.error);
+                                         setDiffPreviewState(prev => ({ ...prev, isOpen: false }));
+                                         setDebuggerAnalysis(null);
+                                     },
+                                     onReject: () => {
+                                         setDiffPreviewState(prev => ({ ...prev, isOpen: false }));
+                                     }
+                                 });
+                             } else {
+                                 alert("Failed to apply patch cleanly. The file may have changed.");
+                             }
+                          } catch(e) {
+                              console.error(e);
+                              alert("Error parsing patch: " + e);
+                          }
+                      }
+                  }} />
+              </div>
+            )}
+<Editor
               tabs={tabs}
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}

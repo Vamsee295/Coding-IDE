@@ -5,16 +5,12 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let currentController: AbortController | null = null;
 let lastRequestHash: string | null = null;
 let lastResponse: any = null;
+let cancelPrevPromise: ((value: any) => void) | null = null;
 
 export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = {
     freeInlineCompletions() {},
     async provideInlineCompletions(model, position, context, token) {
-        // Fast exit conditions (don't autocomplete strictly if we're doing an explicit undo or something)
-
-        // Get surrounding context. To keep it fast, we only grab the current line and maybe a few lines before/after.
-        // FIM format requires precise parsing.
-
-        const MAX_LINES = 30; // only send 30 lines of context to keep it fast
+        const MAX_LINES = 30;
         const startLine = Math.max(1, position.lineNumber - Math.floor(MAX_LINES/2));
         const endLine = Math.min(model.getLineCount(), position.lineNumber + Math.floor(MAX_LINES/2));
 
@@ -32,13 +28,17 @@ export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = 
             endColumn: model.getLineMaxColumn(endLine)
         });
 
-        // Basic request deduplication
         const requestHash = `${position.lineNumber}:${position.column}:${textBeforePointer.length}`;
         if (lastRequestHash === requestHash && lastResponse) {
              return lastResponse;
         }
 
         return new Promise((resolve) => {
+            if (cancelPrevPromise) {
+                cancelPrevPromise({ items: [] });
+            }
+            cancelPrevPromise = resolve;
+
             if (debounceTimer) clearTimeout(debounceTimer);
             if (currentController) currentController.abort();
 
@@ -47,20 +47,15 @@ export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = 
 
             debounceTimer = setTimeout(async () => {
                 try {
-                    // Pull the completion model from local storage settings if it exists
-                    let completionModel = 'qwen2.5-coder:1.5b'; // Fast default
+                    let completionModel = 'qwen2.5-coder:1.5b';
                     try {
                         const settingsRaw = localStorage.getItem('ide-settings');
                         if (settingsRaw) {
                             const parsed = JSON.parse(settingsRaw);
-                            if (parsed.aiCompletionModel) {
-                                completionModel = parsed.aiCompletionModel;
-                            }
+                            if (parsed.aiCompletionModel) completionModel = parsed.aiCompletionModel;
                         }
                     } catch(e) {}
 
-                    // FIM standard for Qwen coder FIM tokens:
-                    // <|fim_prefix|> context before <|fim_suffix|> context after <|fim_middle|>
                     const prompt = `<|fim_prefix|>${textBeforePointer}<|fim_suffix|>${textAfterPointer}<|fim_middle|>`;
 
                     const response = await fetch(`${CONFIG.PYTHON_API_URL}/ai/stream`, {
@@ -71,8 +66,8 @@ export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = 
                             prompt: prompt,
                             stream: false,
                             options: {
-                                num_predict: 48, // Limit generation to keep it snappy
-                                temperature: 0.1, // Low temperature for code
+                                num_predict: 48,
+                                temperature: 0.1,
                                 stop: ["<|file_separator|>", "<|endoftext|>"]
                             }
                         }),
@@ -81,12 +76,13 @@ export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = 
 
                     if (!response.ok) {
                         resolve({ items: [] });
+                        cancelPrevPromise = null;
                         return;
                     }
 
                     const data = await response.json();
                     if (data && data.response) {
-                        const suggestion = data.response.trimEnd(); // Remove trailing empty space
+                        const suggestion = data.response.trimEnd();
                         if (suggestion) {
                             const completionResult = {
                                 items: [{
@@ -97,17 +93,17 @@ export const autocompleteProvider: monaco.languages.InlineCompletionsProvider = 
                             lastRequestHash = requestHash;
                             lastResponse = completionResult;
                             resolve(completionResult);
+                            cancelPrevPromise = null;
                             return;
                         }
                     }
                     resolve({ items: [] });
+                    cancelPrevPromise = null;
                 } catch (e: any) {
-                    if (e.name !== 'AbortError') {
-                        console.error('Autocomplete error:', e);
-                    }
                     resolve({ items: [] });
+                    cancelPrevPromise = null;
                 }
-            }, 300); // 300ms debounce as requested
+            }, 300);
         });
     }
 };
