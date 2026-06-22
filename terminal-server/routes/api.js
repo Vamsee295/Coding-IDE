@@ -696,12 +696,187 @@ async function executeTool(action, workspaceRoot, cwd) {
     }
 }
 
+
+const { randomUUID: uuidv4 } = require('crypto');
+
+const pendingApprovals = new Map();
+
+router.post('/ai/agent/approve', (req, res) => {
+    const { id, approved } = req.body;
+    if (pendingApprovals.has(id)) {
+        pendingApprovals.get(id)(approved);
+        pendingApprovals.delete(id);
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: 'Approval not found or already processed' });
+    }
+});
+
+// Periodic cleanup to prevent memory leaks
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, resolver] of pendingApprovals.entries()) {
+        if (now - resolver.timestamp > 5 * 60 * 1000) { // 5 minutes timeout
+            resolver.resolve(false);
+            pendingApprovals.delete(id);
+        }
+    }
+}, 60000);
+
+const AUTO_APPROVED = new Set([
+    'read_file', 'readFile',
+    'list_directory', 'listFiles', 'list_files',
+    'search_workspace', 'search',
+    'get_terminal_logs',
+    'retrieve_rag_context',
+    'git_status',
+    'git_diff'
+]);
+
+function requiresApproval(actionType) {
+    return !AUTO_APPROVED.has(actionType);
+}
+
+
+router.post('/ai/debug/analyze', async (req, res) => {
+    const { errorText, fileContext, model, ollamaEndpoint } = req.body;
+    if (!errorText) return res.status(400).json({ error: 'errorText required' });
+
+    const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
+    const MODEL = model || 'qwen2.5-coder:7b';
+
+    const prompt = `You are an expert AI Debugger. Analyze the following terminal error and provide a fix.
+
+[Terminal Error / Stack Trace]
+${errorText}
+
+[Relevant File Context]
+${fileContext || "No specific file provided. Infer from the stack trace."}
+
+You MUST respond ONLY with a JSON block in this exact format. Do not include any other text.
+\`\`\`json
+{
+  "summary": "Short 1-sentence summary of the error",
+  "rootCause": "Explanation of why this error is happening based on the context",
+  "suggestedFix": "Short description of how to fix it",
+  "confidence": 95,
+  "patch": "--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old line\n+new line",
+  "fileToPatch": "path/to/file.ts"
+}
+\`\`\`
+`;
+
+    try {
+        const ollamaRes = await fetch(`${PYTHON_URL}/ai/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: MODEL, prompt, stream: false, ollamaEndpoint: OLLAMA_URL })
+        });
+
+        if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
+
+        const data = await ollamaRes.json();
+
+        // Parse the JSON block
+        const jsonMatch = /\`\`\`json\s*([\s\S]*?)\s*\`\`\`/g.exec(data.response);
+        let parsed = null;
+        if (jsonMatch) {
+            parsed = JSON.parse(jsonMatch[1]);
+        } else if (data.response.trim().startsWith('{')) {
+            parsed = JSON.parse(data.response.trim());
+        }
+
+        if (parsed) {
+            res.json(parsed);
+        } else {
+            res.status(500).json({ error: 'Failed to parse AI response into JSON', raw: data.response });
+        }
+    } catch (e) {
+        console.error("Debug Analyze Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+router.post('/ai/git/intelligence', async (req, res) => {
+    const { action, diffs, model, ollamaEndpoint } = req.body;
+    if (!action || !diffs) return res.status(400).json({ error: 'action and diffs required' });
+
+    const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
+    const MODEL = model || 'qwen2.5-coder:7b';
+
+    let prompt = "";
+    if (action === "commit") {
+        prompt = `Analyze the following git diffs and generate a concise, conventional git commit message.
+Output ONLY the raw commit message (no markdown blocks, no explanations).
+
+[Changes]
+${diffs}`;
+    } else if (action === "explain") {
+        prompt = `Analyze the following git diff and explain the changes.
+Provide a clear breakdown of:
+- What changed
+- Why it changed
+- Potential side effects
+
+[Changes]
+${diffs}`;
+    } else if (action === "review") {
+        prompt = `Act as an expert Code Reviewer. Inspect the following git diffs for:
+- Bugs or logic errors
+- Security concerns
+- Performance concerns
+- Maintainability/Style suggestions
+
+Provide a structured review report.
+
+[Changes]
+${diffs}`;
+    } else if (action === "pr_summary") {
+        prompt = `Generate a Pull Request Summary in Markdown format for the following changes. Include:
+## Title
+## Summary
+## Files Modified
+## Testing Notes
+## Breaking Changes (if any)
+
+[Changes]
+${diffs}`;
+    } else if (action === "release_notes") {
+        prompt = `Generate a Release Notes document in Markdown format for the following changes. Group items logically (e.g. New Features, Improvements, Fixes).
+
+[Changes]
+${diffs}`;
+    } else {
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    try {
+        const ollamaRes = await fetch(`${PYTHON_URL}/ai/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: MODEL, prompt, stream: false, ollamaEndpoint: OLLAMA_URL })
+        });
+
+        if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
+
+        const data = await ollamaRes.json();
+        res.json({ result: data.response });
+    } catch (e) {
+        console.error("Git Intelligence Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.post('/ai/agent', async (req, res) => {
     const { prompt, projectContext, workspaceRoot, ollamaEndpoint, model, maxIterations } = req.body;
 
     if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
     const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const PYTHON_URL = req.body.pythonEndpoint || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const MODEL = model || 'qwen2.5-coder:7b';
     const MAX_ITER = Math.min(parseInt(maxIterations || '8'), 12);
 
@@ -830,6 +1005,24 @@ If you are completely finished with the user's task, include an action with type
                     emit({ type: 'response', content: finalMsg || fullResponse });
                     emit({ type: 'done', iterations: iteration + 1 });
                     return res.end();
+                }
+
+                if (requiresApproval(action.type)) {
+                    const actionId = uuidv4();
+                    emit({ type: 'approval_request', action, id: actionId });
+
+                    const isApproved = await new Promise(resolve => {
+                        const resolver = (val) => resolve(val);
+                        resolver.resolve = resolve;
+                        resolver.timestamp = Date.now();
+                        pendingApprovals.set(actionId, resolver);
+                    });
+
+                    if (!isApproved) {
+                        emit({ type: 'tool_result', action, result: "User rejected this action.", success: false });
+                        toolResultsBlock += `[${action.type} REJECTED BY USER]\n\n`;
+                        continue;
+                    }
                 }
 
                 emit({ type: 'tool_call', action });

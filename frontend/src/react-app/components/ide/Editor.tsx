@@ -9,6 +9,8 @@ import { connectLanguageServer, disconnectLanguageServer } from "@/services/lspC
 import { getFileIconUrl } from "@/react-app/lib/fileIcons";
 import { aiCompletionService } from "@/services/aiCompletionService";
 import { DiffPreview } from "./DiffPreview";
+import { autocompleteProvider } from "@/services/autocompleteService";
+import * as monaco from "monaco-editor";
 
 let inlineCompletionsRegistered = false;
 
@@ -246,6 +248,13 @@ export default function Editor({ tabs, onTabSelect, onTabClose, onContentChange,
 
   const lastContentRef = useRef(activeTab?.content);
 
+
+  useEffect(() => {
+    if (!inlineCompletionsRegistered) {
+      monaco.languages.registerInlineCompletionsProvider('*', autocompleteProvider);
+      inlineCompletionsRegistered = true;
+    }
+  }, []);
   useEffect(() => {
     if (!editorRef.current || !activeTab) return;
     const model = editorRef.current.getModel();

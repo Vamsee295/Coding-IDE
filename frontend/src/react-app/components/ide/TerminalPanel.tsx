@@ -408,8 +408,17 @@ const PanelManager = forwardRef<TerminalPanelHandle, PanelManagerProps>(
                 {pt.icon}
                 {pt.label}
               </button>
-            ))}
-          </div>
+          ))}
+
+          <button
+             onClick={() => window.dispatchEvent(new CustomEvent('ai:triggerDebug'))}
+             className="ml-auto mr-4 flex items-center gap-1.5 px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 text-[10px] font-medium rounded border border-indigo-500/20 transition-colors"
+          >
+             <Sparkles className="w-3 h-3" />
+             Fix With AI
+          </button>
+
+        </div>
 
           {/* Right toolbar */}
           <div className="flex items-center gap-0.5 flex-shrink-0">

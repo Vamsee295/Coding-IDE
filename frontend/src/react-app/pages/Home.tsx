@@ -22,6 +22,7 @@ import WelcomePage from "@/react-app/components/ide/WelcomePage";
 import ReleaseNotesPage from "@/react-app/components/ide/ReleaseNotesPage";
 import KeyboardShortcutsModal from "@/react-app/components/ide/KeyboardShortcutsModal";
 import DebugToolbar from "@/react-app/components/ide/DebugToolbar";
+import { DebuggerCard } from "@/react-app/components/ide/DebuggerCard";
 import CommandPalette from "@/react-app/components/ide/CommandPalette";
 import DiffPreviewModal from "@/react-app/components/ide/DiffPreviewModal";
 import { debugService } from "@/services/debugService";
@@ -125,6 +126,8 @@ export default function HomePage() {
 
   const [debugActive, setDebugActive] = useState(false);
   const [debugPaused, setDebugPaused] = useState(false);
+  const [debuggerAnalysis, setDebuggerAnalysis] = useState<any>(null);
+  const [isApplyingFix, setIsApplyingFix] = useState(false);
   const [statusBarLine, setStatusBarLine] = useState(1);
   const [statusBarCol, setStatusBarCol] = useState(1);
   const [isBackendConnected, setIsBackendConnected] = useState(true);
@@ -136,6 +139,60 @@ export default function HomePage() {
   const selectionRef = useRef<string>("");
 
   // Check backend connectivity
+
+  useEffect(() => {
+    const handleTriggerDebug = async () => {
+      let errorText = "";
+      if (terminalRef.current && typeof terminalRef.current.getOutput === 'function') {
+         const out = terminalRef.current.getOutput();
+         // Grab the last 50 lines to catch the error
+         errorText = out.split('\n').slice(-50).join('\n');
+      }
+      if (!errorText.trim()) {
+         errorText = "No terminal output found to analyze.";
+      }
+
+
+        let fileContext = "";
+        const actTab = tabs.find(t => t.isActive);
+        if (actTab && actTab.content) {
+            fileContext += `Active File: ${actTab.name}\nPath: ${actTab.path}\n\n${actTab.content}\n\n`;
+        }
+
+        try {
+            // Retrieve RAG context to help the debugger
+            const ragResults = await searchVectorContext(errorText, 3);
+            if (ragResults && ragResults.length > 0) {
+                fileContext += "--- Relevant Workspace Context ---\n";
+                ragResults.forEach((res: any) => {
+                    fileContext += `File: ${res.path}\nContent:\n${res.content}\n\n`;
+                });
+            }
+        } catch(e) { console.error("RAG error", e); }
+
+
+      try {
+        const res = await fetch(CONFIG.TERMINAL_SERVER_URL + '/api/ai/debug/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ errorText, fileContext, model: settings.aiModel, pythonEndpoint: CONFIG.PYTHON_API_URL })
+        });
+        const data = await res.json();
+        if (data && !data.error) {
+            setDebuggerAnalysis(data);
+        } else {
+            alert(data.error || "Failed to analyze error");
+        }
+      } catch (e: any) {
+        console.error(e);
+        alert("Failed to reach debug analyzer");
+      }
+    };
+
+    window.addEventListener('ai:triggerDebug', handleTriggerDebug);
+    return () => window.removeEventListener('ai:triggerDebug', handleTriggerDebug);
+  }, [tabs, settings.aiModel]);
+
   useEffect(() => {
     const check = () => fetch(`${CONFIG.TERMINAL_API_URL}/health`).then(() => setIsBackendConnected(true)).catch(() => setIsBackendConnected(false));
     check();
@@ -228,6 +285,44 @@ export default function HomePage() {
       document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [resizingPanel]);
+
+
+  useEffect(() => {
+    const handleGitResult = (e: any) => {
+      setAiChatVisible(true);
+      setSidebarTab("chat");
+
+      const aiMsgId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, {
+        id: aiMsgId,
+        role: "assistant",
+        content: e.detail.content,
+        timestamp: new Date()
+      }]);
+    };
+    window.addEventListener('ai:gitIntelligenceResult', handleGitResult);
+    return () => window.removeEventListener('ai:gitIntelligenceResult', handleGitResult);
+  }, [setMessages, setAiChatVisible, setSidebarTab]);
+
+  const [serviceStatus, setServiceStatus] = useState({ node: false, python: false, ollama: false });
+  const [ollamaMissing, setOllamaMissing] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    const checkHealth = async () => {
+        try {
+            const nodeRes = await fetch(CONFIG.TERMINAL_SERVER_URL + '/health').catch(() => null);
+            const pyRes = await fetch(CONFIG.PYTHON_API_URL + '/health').catch(() => null);
+            const oRes = await fetch(settings.ollamaEndpoint).catch(() => null);
+            if (mounted) {
+                setServiceStatus({ node: !!nodeRes?.ok, python: !!pyRes?.ok, ollama: !!oRes?.ok });
+                setOllamaMissing(!oRes?.ok);
+            }
+        } catch(e) {}
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [settings.ollamaEndpoint]);
 
   const [pendingReview, setPendingReview] = useState(false);
   const [reviewFiles] = useState<any[]>([]);
@@ -648,7 +743,7 @@ export default function HomePage() {
                     const evt = JSON.parse(dataStr);
                     
                     if (evt.type === "done") {
-                      setAgentEvents(prev => [...prev, { type: "done", success: true, iterations: evt.iterations || 1 }]);
+                      setAgentEvents(prev => [...prev, { type: "done", success: true, output: "", iterations: evt.iterations || 1 }]);
                       setMessages(prev => prev.map(m => m.id === aiMsgId ? {
                         ...m,
                         content: evt.output || "Agent finished.",
@@ -1399,7 +1494,10 @@ export default function HomePage() {
       if (ev.type === 'stopped') setDebugPaused(true);
       if (ev.type === 'continued') setDebugPaused(false);
       if (ev.type === 'terminated') { setDebugActive(false); setDebugPaused(false); unsub(); }
-      if (ev.type === 'error') { alert(`Debug error: ${ev.message}`); setDebugActive(false); unsub(); }
+      if (ev.type === 'error') {
+        window.dispatchEvent(new CustomEvent('ai:triggerDebug'));
+        setDebugActive(false); unsub();
+      }
     });
     await debugService.launch({ language: lang, filePath: activeTab.path });
     toggleSidebarTab("debug");
@@ -1984,7 +2082,113 @@ Output ONLY the JSON action block using applyDiff to patch the file at ${activeT
                 <DebugView rootPath={activeProjectPath} />
               </div>
             )}
-            <Editor
+
+            {debuggerAnalysis && (
+              <div className="absolute top-4 right-4 z-[60] pointer-events-none">
+                <DebuggerCard
+                  analysis={debuggerAnalysis}
+                  isApplying={isApplyingFix}
+                  onDismiss={() => setDebuggerAnalysis(null)}
+                  onApply={async (analysis: any) => {
+                      if (analysis.patch && analysis.fileToPatch) {
+                          try {
+                             let resolvedPath = analysis.fileToPatch;
+                             if (activeProjectPath && !resolvedPath.startsWith('/') && !/^[a-zA-Z]:\\/.test(resolvedPath)) {
+                                resolvedPath = `${activeProjectPath}/${resolvedPath}`.replace(/\/\//g, '/');
+                             }
+                             if (resolvedPath.includes('../')) {
+                                alert("Invalid path proposed by AI.");
+                                return;
+                             }
+
+                             const orig = await fsService.readFile(resolvedPath);
+                             const patched = applyPatch(orig, analysis.patch);
+
+                             if (patched && typeof patched === 'string') {
+                                 setDiffPreviewState({
+                                     isOpen: true,
+                                     targetPath: resolvedPath,
+                                     actionType: "apply_diff",
+                                     originalContent: orig,
+                                     content: patched,
+                                     onAccept: () => {
+                                         fsService.writeFile(resolvedPath, patched).then(() => {
+                                             setFiles(prev => {
+                                                return prev.map(f => f.path === resolvedPath ? { ...f, content: patched } : f);
+                                             });
+                                             setTabs(prev => prev.map(t => t.path === resolvedPath ? { ...t, content: patched } : t));
+                                         }).catch(console.error);
+                                         setDiffPreviewState(prev => ({ ...prev, isOpen: false }));
+                                         setDebuggerAnalysis(null);
+                                     },
+                                     onReject: () => {
+                                         setDiffPreviewState(prev => ({ ...prev, isOpen: false }));
+                                     }
+                                 });
+                             } else {
+                                 alert("Failed to apply patch cleanly. The file may have changed.");
+                             }
+                          } catch(e) {
+                              console.error(e);
+                              alert("Error parsing patch: " + e);
+                          }
+                      }
+                  }} />
+              </div>
+            )}
+
+            {/* First Launch Setup Wizard */}
+            {(!activeProjectPath || ollamaMissing || (!serviceStatus.node || !serviceStatus.python)) && !showWelcomePage && (
+                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
+                    <div className="bg-ide-sidebar border border-ide-border rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in-95 duration-300">
+                        <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                             Welcome to StackFlow
+                        </h2>
+                        <p className="text-sm text-ide-text-secondary mb-6">Let's get your local-first AI IDE set up and ready to go.</p>
+
+                        <div className="space-y-4 mb-8">
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div>
+                                    <h4 className="text-sm font-semibold text-white">Backend Services</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{serviceStatus.node && serviceStatus.python ? 'Running correctly.' : 'Initializing...'}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-semibold text-white">Ollama Engine</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{!ollamaMissing ? 'Connected.' : 'Not detected. Please install Ollama.'}</p>
+                                </div>
+                                {ollamaMissing && (
+                                    <a href="https://ollama.com" target="_blank" rel="noreferrer" className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-colors">Install</a>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-semibold text-white">Workspace</h4>
+                                    <p className="text-[11px] text-ide-text-secondary">{activeProjectPath ? activeProjectPath : 'No folder selected.'}</p>
+                                </div>
+                                {!activeProjectPath && (
+                                    <button onClick={() => dispatchCommand('file.openFolder')} className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-colors">Select Folder</button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setShowWelcomePage(true)}
+                                disabled={false}
+                                className="bg-white text-black font-semibold text-sm px-6 py-2 rounded-lg disabled:opacity-50 transition-all hover:bg-gray-200"
+                            >
+                                Continue to IDE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+<Editor
               tabs={tabs}
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}

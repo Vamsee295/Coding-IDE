@@ -109,6 +109,7 @@ export interface AppSettings {
     taskAutoDetect: string;
     // AI Assistant
     aiModel: string;
+    aiCompletionModel: string;
     aiTemperature: number;
     contextualAwareness: boolean;
     streamingResponse: boolean;
@@ -240,6 +241,7 @@ const defaultSettings: AppSettings = {
     taskAutoDetect: 'on',
     // AI Assistant
     aiModel: 'qwen2.5-coder:7b',
+    aiCompletionModel: 'qwen2.5-coder:1.5b',
     aiTemperature: 0.7,
     contextualAwareness: true,
     streamingResponse: true,
