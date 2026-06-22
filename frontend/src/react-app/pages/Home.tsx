@@ -286,6 +286,24 @@ export default function HomePage() {
     };
   }, [resizingPanel]);
 
+
+  useEffect(() => {
+    const handleGitResult = (e: any) => {
+      setAiChatVisible(true);
+      setSidebarTab("chat");
+
+      const aiMsgId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, {
+        id: aiMsgId,
+        role: "assistant",
+        content: e.detail.content,
+        timestamp: new Date()
+      }]);
+    };
+    window.addEventListener('ai:gitIntelligenceResult', handleGitResult);
+    return () => window.removeEventListener('ai:gitIntelligenceResult', handleGitResult);
+  }, [setMessages, setAiChatVisible, setSidebarTab]);
+
   const [pendingReview, setPendingReview] = useState(false);
   const [reviewFiles] = useState<any[]>([]);
   // Tracks the very first project path — passed as initialCwd to TerminalPanel once

@@ -797,6 +797,77 @@ You MUST respond ONLY with a JSON block in this exact format. Do not include any
     }
 });
 
+
+router.post('/ai/git/intelligence', async (req, res) => {
+    const { action, diffs, model, ollamaEndpoint } = req.body;
+    if (!action || !diffs) return res.status(400).json({ error: 'action and diffs required' });
+
+    const OLLAMA_URL = ollamaEndpoint || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const MODEL = model || 'qwen2.5-coder:7b';
+
+    let prompt = "";
+    if (action === "commit") {
+        prompt = `Analyze the following git diffs and generate a concise, conventional git commit message.
+Output ONLY the raw commit message (no markdown blocks, no explanations).
+
+[Changes]
+${diffs}`;
+    } else if (action === "explain") {
+        prompt = `Analyze the following git diff and explain the changes.
+Provide a clear breakdown of:
+- What changed
+- Why it changed
+- Potential side effects
+
+[Changes]
+${diffs}`;
+    } else if (action === "review") {
+        prompt = `Act as an expert Code Reviewer. Inspect the following git diffs for:
+- Bugs or logic errors
+- Security concerns
+- Performance concerns
+- Maintainability/Style suggestions
+
+Provide a structured review report.
+
+[Changes]
+${diffs}`;
+    } else if (action === "pr_summary") {
+        prompt = `Generate a Pull Request Summary in Markdown format for the following changes. Include:
+## Title
+## Summary
+## Files Modified
+## Testing Notes
+## Breaking Changes (if any)
+
+[Changes]
+${diffs}`;
+    } else if (action === "release_notes") {
+        prompt = `Generate a Release Notes document in Markdown format for the following changes. Group items logically (e.g. New Features, Improvements, Fixes).
+
+[Changes]
+${diffs}`;
+    } else {
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    try {
+        const ollamaRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: MODEL, prompt, stream: false })
+        });
+
+        if (!ollamaRes.ok) throw new Error(`Ollama error: ${ollamaRes.status}`);
+
+        const data = await ollamaRes.json();
+        res.json({ result: data.response });
+    } catch (e) {
+        console.error("Git Intelligence Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.post('/ai/agent', async (req, res) => {
     const { prompt, projectContext, workspaceRoot, ollamaEndpoint, model, maxIterations } = req.body;
 

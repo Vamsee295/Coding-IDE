@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSettings } from "@/react-app/contexts/SettingsContext";
+
 import {
     GitBranch, Plus, Minus, RefreshCw,
     ChevronDown, ChevronRight, FileCode, Loader2,
@@ -90,6 +92,51 @@ const MOCK_MODIFIED = `export const Header = () => {
 };`;
 
 export default function SourceControlView({ rootPath }: SourceControlViewProps) {
+
+    const { settings } = useSettings();
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleGitIntelligence = async (actionType: "commit" | "explain" | "review" | "pr_summary" | "release_notes") => {
+        // Collect diffs
+        const diffsToAnalyze = [...stagedChanges, ...changes];
+        if (diffsToAnalyze.length === 0) return;
+
+        setIsGenerating(true);
+        let diffText = "";
+        for (const c of diffsToAnalyze) {
+            diffText += `File: ${c.fileName} (${c.status})\n`;
+            if (typeof c.originalContent === "string" && typeof c.modifiedContent === "string") {
+                 const { left, right } = computeDiff(c.originalContent, c.modifiedContent);
+                 diffText += right.filter(l => l.type === 'added' || l.type === 'removed').map(l => (l.type === 'added' ? '+' : '-') + l.content).join('\n');
+                 diffText += '\n\n';
+            }
+        }
+
+        try {
+            const response = await fetch(CONFIG.TERMINAL_SERVER_URL + '/api/ai/git/intelligence', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: actionType, diffs: diffText, model: settings.aiModel, ollamaEndpoint: settings.ollamaEndpoint })
+            });
+            const data = await response.json();
+            if (data && data.result) {
+                if (actionType === "commit") {
+                    setCommitMessage(data.result);
+                } else {
+                    // Send to Chat Panel
+                    window.dispatchEvent(new CustomEvent('ai:gitIntelligenceResult', { detail: { content: data.result } }));
+                }
+            } else {
+                alert("Failed to generate response");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error running Git Intelligence");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
     const [changes, setChanges] = useState<GitChange[]>([]);
     const [commitMessage, setCommitMessage] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -224,6 +271,24 @@ export default function SourceControlView({ rootPath }: SourceControlViewProps) 
                             <GitCommit className="w-3.5 h-3.5 text-ide-text-secondary/30" />
                         </div>
                     </div>
+
+                    <div className="flex flex-col gap-2 mt-3">
+                        <button
+                            onClick={() => handleGitIntelligence('commit')}
+                            disabled={isGenerating || (stagedChanges.length === 0 && changes.length === 0)}
+                            className="w-full flex items-center justify-center gap-2 py-1.5 bg-ide-accent/10 hover:bg-ide-accent/20 text-ide-accent text-[11px] font-medium rounded border border-ide-accent/20 transition-colors disabled:opacity-50"
+                        >
+                            {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                            {isGenerating ? "Generating..." : "Generate AI Commit"}
+                        </button>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <button onClick={() => handleGitIntelligence('explain')} disabled={isGenerating} className="py-1 text-[10px] text-ide-text-secondary border border-ide-border/60 rounded hover:text-ide-text-primary hover:bg-white/5 transition-colors disabled:opacity-50">Explain Diff</button>
+                            <button onClick={() => handleGitIntelligence('review')} disabled={isGenerating} className="py-1 text-[10px] text-ide-text-secondary border border-ide-border/60 rounded hover:text-ide-text-primary hover:bg-white/5 transition-colors disabled:opacity-50">AI Review</button>
+                            <button onClick={() => handleGitIntelligence('pr_summary')} disabled={isGenerating} className="py-1 text-[10px] text-ide-text-secondary border border-ide-border/60 rounded hover:text-ide-text-primary hover:bg-white/5 transition-colors disabled:opacity-50">PR Summary</button>
+                            <button onClick={() => handleGitIntelligence('release_notes')} disabled={isGenerating} className="py-1 text-[10px] text-ide-text-secondary border border-ide-border/60 rounded hover:text-ide-text-primary hover:bg-white/5 transition-colors disabled:opacity-50">Release Notes</button>
+                        </div>
+                    </div>
+
 
                     <button
                         onClick={handleCommit}
